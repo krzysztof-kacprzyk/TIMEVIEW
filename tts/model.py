@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 import pytorch_lightning as pl
+
+from tts.basis import BSplineBasis
 from .config import Config
 
 class Encoder(torch.nn.Module):
@@ -44,12 +46,15 @@ class TTS(torch.nn.Module):
         super().__init__()
         self.config = config
         self.encoder = Encoder(config)
+        torch.manual_seed(config.seed)
     
     def forward(self, X, Phis):
         """
         Args:
-            x: a tensor of shape (M,) where M is the number of static features
-            Phi: a tensor of shape (N,B) where N is the number of time steps and B is the number of basis functions
+            X: a tensor of shape (D,M) where D is the number of sample and M is the number of static features
+            Phi:
+                if dataloader_type = 'tensor': a tensor of shape (D,N_max,B) where D is the number of sample, N_max is the maximum number of time steps and B is the number of basis functions
+                if dataloader_type = 'iterative': a list of D tensors of shape (N_d,B) where N_d is the number of time steps and B is the number of basis functions
         """
         if self.config.dataloader_type == "iterative":
             h = self.encoder(X)
@@ -57,3 +62,28 @@ class TTS(torch.nn.Module):
         elif self.config.dataloader_type == "tensor":
             h = self.encoder(X)
             return torch.matmul(Phis,torch.unsqueeze(h,-1)).squeeze(-1)
+        
+
+    def forecast_trajectory(self,x,t):
+        """
+        Args:
+            x: a numpy array of shape (M,) where M is the number of static features
+            t: a numpy array of shape (N,) where N is the number of time steps
+        """
+        x = torch.unsqueeze(torch.from_numpy(x),0).float()
+        bspline = BSplineBasis(self.config.n_basis, (0,self.config.T))
+        Phi = torch.from_numpy(bspline.get_matrix(t)).float()
+        h = self.encoder(x)
+        return torch.matmul(Phi,h[0,:])
+
+    def forecast_trajectories(self,X,t):
+        """
+        Args:
+            X: a numpy array of shape (D,M) where D is the number of sample and M is the number of static features
+            t: a numpy array of shape (N,) where N is the number of time steps
+        """
+        X = torch.from_numpy(X).float()
+        bspline = BSplineBasis(self.config.n_basis, (0,self.config.T))
+        Phi = torch.from_numpy(bspline.get_matrix(t)).float() # shape (N,B)
+        h = self.encoder(X) # shape (D,B)
+        return torch.matmul(h,Phi.T) # shape (D,N)
