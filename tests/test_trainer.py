@@ -1,5 +1,5 @@
 import pytest
-from tts.trainer import LitTTS
+from tts.lit_module import LitTTS
 from tts.config import Config
 from tts.model import TTS
 from tts.data import create_dataloaders, TTSDataset

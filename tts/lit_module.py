@@ -12,6 +12,17 @@ class LitTTS(pl.LightningModule):
         self.loss_fn = torch.nn.MSELoss()
         self.lr = self.config.training.lr
 
+    def predict_step(self, batch, batch_idx, dataloader_idx = 0):
+        if self.config.dataloader_type == 'iterative':
+            batch_X, batch_Phis, batch_ys = batch
+            preds = self.model(batch_X, batch_Phis) # list of tensors
+            return preds
+
+        elif self.config.dataloader_type == 'tensor':
+            batch_X, batch_Phi, batch_y, batch_N = batch
+            pred = self.model(batch_X, batch_Phi)
+            return pred # 2D tensor
+
     def training_step(self, batch, batch_idx):
 
         if self.config.dataloader_type == 'iterative':
@@ -59,7 +70,7 @@ class LitTTS(pl.LightningModule):
             pred = self.model(batch_X, batch_Phi)
             loss = torch.sum(torch.sum(((pred - batch_y) ** 2), dim=1) / batch_N) / batch_X.shape[0]
 
-        self.log('train_loss', loss)
+        self.log('test_loss', loss)
       
         return loss
 
