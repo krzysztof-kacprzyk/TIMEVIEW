@@ -71,10 +71,10 @@ class TTSDataset(torch.utils.data.Dataset):
         """
         self.config = config
         if isinstance(data,pd.DataFrame):
-            self._save_data(self._extract_data_from_one_dataframe(data),T)
+            self._save_data(*self._extract_data_from_one_dataframe(data),T)
         elif isinstance(data,tuple):
             if len(data) == 2:
-                self._save_data(self._extract_data_from_two_dataframes(data[0],data[1]),T)
+                self._save_data(*self._extract_data_from_two_dataframes(data[0],data[1]),T)
             elif len(data) == 3:
                 _validate_data(data[0],data[1],data[2],T)        
                 self._save_data(data[0],data[1],data[2],T)
@@ -95,13 +95,13 @@ class TTSDataset(torch.utils.data.Dataset):
         for id in ids:
             df_static_id = df_static[df_static['id'] == id]
             assert df_static_id.shape[0] == 1 # there should be only one row for each id
-            X.append(df_static_id.values[0,:])
+            X.append(df_static_id[0,1:].values.astype(np.float32).reshape(1,-1))
             df_trajectories_id = df_trajectories[df_trajectories['id'] == id].copy()
             df_trajectories_id.sort_values(by='t',inplace=True)
-            ts.append(df_trajectories_id['t'].values)
-            ys.append(df_trajectories_id['y'].values)
+            ts.append(df_trajectories_id['t'].values.reshape(-1))
+            ys.append(df_trajectories_id['y'].values.reshape(-1))
         X = np.concatenate(X,axis=0)
-        return X,ts,ys
+        return [X,ts,ys]
     
     def _extract_data_from_one_dataframe(self,df):
         """
@@ -117,12 +117,13 @@ class TTSDataset(torch.utils.data.Dataset):
         ys = []
         for id in ids:
             df_id = df[df['id'] == id].copy()
-            X.append(df_id.values[0,:])
+            X.append(df_id.iloc[0,1:-2].values.astype(np.float32).reshape(1,-1))
+            # print(X)
             df_id.sort_values(by='t',inplace=True)
-            ts.append(df_id['t'].values)
-            ys.append(df_id['y'].values)
+            ts.append(df_id['t'].values.reshape(-1))
+            ys.append(df_id['y'].values.reshape(-1))
         X = np.concatenate(X,axis=0)
-        return X,ts,ys
+        return [X,ts,ys]
 
     def _save_data(self,X,ts,ys,T):
         self.X = X
@@ -322,7 +323,7 @@ class TTSDataset(torch.utils.data.Dataset):
 #         super().__init__(X,torch.stack(Phis,dim=0),torch.stack(ys,dim=0),torch.tensor(Ns))
 
 
-def create_dataloaders(config,dataset,seed=0):
+def create_dataloaders(config,dataset):
     """
     This function creates the train, validation, and test dataloaders.
     Args:
@@ -345,6 +346,7 @@ def create_dataloaders(config,dataset,seed=0):
     test_size = len(dataset) - train_size - val_size
 
     gen = torch.Generator()
+    seed = config.seed
     gen.manual_seed(seed)
 
     train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size], generator=gen)
