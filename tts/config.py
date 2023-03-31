@@ -24,6 +24,8 @@ class Config():
     def __init__(self,
                  n_features=1,
                  n_basis=5,
+                 T=1,
+                 seed=42,
                  encoder={'hidden_sizes':[32,64,32],'activation':'relu'},
                  training={'optimizer':'adam','lr':1e-3,'batch_size':32,'num_epochs':100,'patience':10,'verbose':True},
                  dataset_split={'train':0.8,'val':0.1,'test':0.1},
@@ -64,6 +66,8 @@ class Config():
         
         self.n_basis = n_basis
         self.n_features = n_features
+        self.T = T
+        self.seed = seed
         self.encoder = SimpleNamespace(**encoder)
         self.training = SimpleNamespace(**training)
         self.dataset_split = SimpleNamespace(**dataset_split)
