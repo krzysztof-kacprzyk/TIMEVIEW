@@ -27,7 +27,7 @@ class Config():
                  T=1,
                  seed=42,
                  encoder={'hidden_sizes':[32,64,32],'activation':'relu'},
-                 training={'optimizer':'adam','lr':1e-3,'batch_size':32,'num_epochs':100,'patience':10,'verbose':True},
+                 training={'optimizer':'adam','lr':1e-3,'batch_size':32,'weight_decay':1e-5},
                  dataset_split={'train':0.8,'val':0.1,'test':0.1},
                  dataloader_type='iterative'):
         
@@ -47,12 +47,8 @@ class Config():
             raise ValueError("optimizer['lr'] must be a float")
         if not isinstance(training['batch_size'],int):
             raise ValueError("training['batch_size'] must be an integer")
-        if not isinstance(training['num_epochs'],int):
-            raise ValueError("training['num_epochs'] must be an integer")
-        if not isinstance(training['patience'],int):
-            raise ValueError("training['patience'] must be an integer")
-        if not isinstance(training['verbose'],bool):
-            raise ValueError("training['verbose'] must be a boolean")
+        if not isinstance(training['weight_decay'],float):
+            raise ValueError("training['weight_decay'] must be a float")
         if not isinstance(dataset_split['train'],float):
             raise ValueError("dataset_split['train'] must be a float")
         if not isinstance(dataset_split['val'],float):
