@@ -3,6 +3,7 @@ import numpy as np
 from .config import Config
 from .basis import BSplineBasis
 import pandas as pd
+from scipy.integrate import odeint
 
 from abc import abstractmethod, ABC
 
@@ -53,7 +54,7 @@ def _pad_to_shape(a, shape):
 
 class TTSDataset(torch.utils.data.Dataset):
      
-    def __init__(self, config, data, T):
+    def __init__(self, config, data):
         """
         This constructor is helpful when you have irregularly sampled trajectories. 
         Args:
@@ -70,6 +71,7 @@ class TTSDataset(torch.utils.data.Dataset):
             T: a real number that is the time horizon
         """
         self.config = config
+        T = config.T
         if isinstance(data,pd.DataFrame):
             self._save_data(*self._extract_data_from_one_dataframe(data),T)
         elif isinstance(data,tuple):
@@ -322,8 +324,47 @@ class TTSDataset(torch.utils.data.Dataset):
 
 #         super().__init__(X,torch.stack(Phis,dim=0),torch.stack(ys,dim=0),torch.tensor(Ns))
 
+def create_dataloader(config,dataset,indices=None,shuffle=True):
+    """
+    Creates a dataloader for a subset of the dataset described by the list of indices
+    Args:
+        config: an instance of the Config class
+        dataset: an instance of the TTSDataset class
+        indices: a list of integers that are the indices of the dataset
+        shuffle: a boolean that indicates whether to shuffle the indices
+    Returns:
+        dataloader: a torch.utils.data.DataLoader object
+    """
 
-def create_dataloaders(config,dataset):
+    if not isinstance(config, Config):
+        raise ValueError("config must be an instance of the Config class")
+    if not isinstance(dataset, TTSDataset):
+        raise ValueError("dataset must be an instance of the TTSDataset class")
+    if indices is not None:
+        if not isinstance(indices, list):
+            raise ValueError("indices must be a list")
+        
+        # Verify that the list contains only integers
+        for i in range(len(indices)):
+            if not isinstance(indices[i], int):
+                raise ValueError("indices must be a list of integers")
+
+    if not isinstance(shuffle, bool):
+        raise ValueError("shuffle must be a boolean")
+    
+    gen = torch.Generator()
+    seed = config.seed
+    gen.manual_seed(seed)
+    
+    if indices is None:
+        subset = dataset
+    else:
+        subset = torch.utils.data.Subset(dataset, indices)
+    collate_fn = dataset.get_collate_fn()
+    dataloader = torch.utils.data.DataLoader(subset, batch_size=config.batch_size, shuffle=shuffle, generator=gen, collate_fn=collate_fn)
+    return dataloader
+
+def create_train_val_test_dataloaders(config,dataset):
     """
     This function creates the train, validation, and test dataloaders.
     Args:
@@ -363,6 +404,183 @@ def create_dataloaders(config,dataset):
 
 
 
+
+def _tumor_volume(t, age, weight, initial_tumor_volume, start_time, dosage):
+    """
+    Computes the tumor volume at times t based on the tumor model under chemotherapy described in the paper.
+
+    Args:
+        t: numpy array of real numbers that are the times at which to compute the tumor volume
+        age: a real number that is the age
+        weight: a real number that is the weight
+        initial_tumor_volume: a real number that is the initial tumor volume
+        start_time: a real number that is the start time of chemotherapy
+        dosage: a real number that is the chemotherapy dosage
+    Returns:
+        Vs: numpy array of real numbers that are the tumor volumes at times t
+    """
+
+    RHO_0 = 2.0
+
+    K_0 = 1.0
+    K_1 = 0.01
+
+    BETA_0 = 50.0
+
+    GAMMA_0 = 5.0
+
+    V_min = 0.001
+
+    # Set the parameters of the tumor model
+    rho = RHO_0 * (age / 20.0) ** 0.5
+    K = K_0 + K_1 * (weight)
+    beta = BETA_0 * (age/20.0) ** (-0.2)
+
+    # Create chemotherapy function
+    def C(t):
+        return np.where(t < start_time, 0.0, dosage * np.exp(- GAMMA_0 * (t - start_time)))
+
+    def dVdt(V, t):
+        """
+        This is the tumor model under chemotherapy.
+        Args:
+            V: a real number that is the tumor volume
+            t: a real number that is the time
+        Returns:
+            dVdt: a real number that is the rate of change of the tumor volume
+        """
+
+        dVdt = rho * (V-V_min) * V * np.log(K / V) - beta * V * C(t)
+
+        return dVdt
+    
+    # Integrate the tumor model
+    V = odeint(dVdt, initial_tumor_volume, t)[:,0]
+    return V
+
+
+def _tumor_volume_2(t, age, weight, initial_tumor_volume, dosage):
+    """
+    Computes the tumor volume at times t based on the tumor model under chemotherapy described in the paper.
+
+    Args:
+        t: numpy array of real numbers that are the times at which to compute the tumor volume
+        age: a real number that is the age
+        weight: a real number that is the weight
+        initial_tumor_volume: a real number that is the initial tumor volume
+        start_time: a real number that is the start time of chemotherapy
+        dosage: a real number that is the chemotherapy dosage
+    Returns:
+        Vs: numpy array of real numbers that are the tumor volumes at times t
+    """
+
+    G_0 = 2.0
+    D_0 = 180.0
+    PHI_0 = 10
+
+    # Set the parameters of the tumor model
+    # rho = RHO_0 * (age / 20.0) ** 0.5
+    # K = K_0 + K_1 * (weight)
+    # beta = BETA_0 * (age/20.0) ** (-0.2)
+
+    g = G_0 * (age / 20.0) ** 0.5
+    d = D_0 * dosage/weight
+    # sigmoid function
+    phi = 1 / (1 + np.exp(-dosage*PHI_0))
+
+    return initial_tumor_volume * (phi*np.exp(-d * t) + (1-phi)*np.exp(g * t))
+
+def _get_tumor_feature_ranges(*feautures):
+    """
+    Gets the ranges of the tumor features.
+
+    Args:
+        feautures: a list of strings that are the tumor features
+    Returns:
+        ranges: a dictionary that maps the tumor features to their ranges
+    """
+
+    ranges = {}
+    for feature in feautures:
+        if feature in TUMOR_DATA_FEATURE_RANGES:
+            ranges[feature] = TUMOR_DATA_FEATURE_RANGES[feature]
+        else:
+            raise ValueError(f"Invalid tumor feature: {feature}")
+    return ranges
+
+TUMOR_DATA_FEATURE_RANGES = {
+    "age": (20, 80),
+    "weight": (40, 100),
+    "initial_tumor_volume": (0.1, 0.5),
+    "start_time": (0.0, 1.0),
+    "dosage": (0.0, 1.0)
+}
+    
+
+def synthetic_tumor_data(n_samples,  n_time_steps, time_horizon=1.0, noise_std=0.0, seed=0, equation="wilkerson"):
+    """
+    Creates synthetic tumor data based on the tumor model under chemotherapy described in the paper.
+
+    We have five static features:
+        1. age
+        2. weight
+        3. initial tumor volume
+        4. start time of chemotherapy (only for Geng et al. model)
+        5. chemotherapy dosage
+
+    Args:
+        n_samples: an integer that is the number of samples
+        noise_std: a real number that is the standard deviation of the noise
+        seed: an integer that is the random seed
+    Returns:
+        X: a numpy array of shape (n_samples, 4)
+        ts: a list of n_samples 1D numpy arrays of shape (n_time_steps,)
+        ys: a list of n_samples 1D numpy arrays of shape (n_time_steps,)
+    """
+
+    # Create the random number generator
+    gen = np.random.default_rng(seed)
+
+    # Sample age
+    age = gen.uniform(TUMOR_DATA_FEATURE_RANGES['age'][0],TUMOR_DATA_FEATURE_RANGES['age'][1], size=n_samples)
+    # Sample weight
+    weight = gen.uniform(TUMOR_DATA_FEATURE_RANGES['weight'][0],TUMOR_DATA_FEATURE_RANGES['weight'][1], size=n_samples)
+    # Sample initial tumor volume
+    tumor_volume = gen.uniform(TUMOR_DATA_FEATURE_RANGES['initial_tumor_volume'][0],TUMOR_DATA_FEATURE_RANGES['initial_tumor_volume'][1], size=n_samples)
+    # Sample start time of chemotherapy
+    start_time = gen.uniform(TUMOR_DATA_FEATURE_RANGES['start_time'][0],TUMOR_DATA_FEATURE_RANGES['start_time'][1], size=n_samples)
+    # Sample chemotherapy dosage
+    dosage = gen.uniform(TUMOR_DATA_FEATURE_RANGES['dosage'][0],TUMOR_DATA_FEATURE_RANGES['dosage'][1], size=n_samples)
+
+    # Combine the static features into a single array
+    if equation == "wilkerson":
+        X = np.stack((age, weight, tumor_volume, dosage), axis=1)
+    elif equation == "geng":
+        X = np.stack((age, weight, tumor_volume, start_time, dosage), axis=1)
+
+    # Create the time points
+    ts = [np.linspace(0.0, time_horizon, n_time_steps) for i in range(n_samples)]
+
+    # Create the tumor volumes
+    ys = []
+
+    for i in range(n_samples):
+
+        # Unpack the static features
+        if equation == "wilkerson":
+            age, weight, tumor_volume, dosage = X[i, :]
+        elif equation == "geng":
+            age, weight, tumor_volume, start_time, dosage = X[i, :]
+
+        if equation == "wilkerson":
+            ys.append(_tumor_volume_2(ts[i], age, weight, tumor_volume, dosage))
+        elif equation == "geng":
+            ys.append(_tumor_volume(ts[i], age, weight, tumor_volume, start_time, dosage))
+
+        # Add noise to the tumor volumes
+        ys[i] += gen.normal(0.0, noise_std, size=n_time_steps)
+
+    return X, ts, ys
 
 
 # def create_dataloaders(config,X,ts,ys,T,seed=0):

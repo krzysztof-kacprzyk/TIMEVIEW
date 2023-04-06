@@ -2,7 +2,7 @@ import pytest
 from tts.lit_module import LitTTS
 from tts.config import Config
 from tts.model import TTS
-from tts.data import create_dataloaders, TTSDataset
+from tts.data import create_train_val_test_dataloaders, TTSDataset
 import numpy as np
 import torch
 import pytorch_lightning as pl
@@ -25,8 +25,8 @@ def data_fixture():
 def test_trainer_iterative(data_fixture):
     data = data_fixture
     config = Config(n_features=3,n_basis=7,dataloader_type='iterative')
-    dataset = TTSDataset(config, data, 1)
-    train_dataloader, val_dataloader, test_dataloader = create_dataloaders(config, dataset)
+    dataset = TTSDataset(config, data)
+    train_dataloader, val_dataloader, test_dataloader = create_train_val_test_dataloaders(config, dataset)
     tts = TTS(config)
     litmodel = LitTTS(config, tts)
 
@@ -39,8 +39,8 @@ def test_trainer_iterative(data_fixture):
 def test_trainer_tensor(data_fixture):
     data = data_fixture
     config = Config(n_features=3,n_basis=7,dataloader_type='tensor')
-    dataset = TTSDataset(config, data, 1)
-    train_dataloader, val_dataloader, test_dataloader = create_dataloaders(config, dataset)
+    dataset = TTSDataset(config, data)
+    train_dataloader, val_dataloader, test_dataloader = create_train_val_test_dataloaders(config, dataset)
     tts = TTS(config)
     litmodel = LitTTS(config, tts)
 
