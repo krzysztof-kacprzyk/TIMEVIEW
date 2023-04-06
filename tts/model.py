@@ -24,11 +24,15 @@ class Encoder(torch.nn.Module):
         activation = torch.nn.ReLU()
 
         self.layers.append(torch.nn.Linear(self.n_features,self.hidden_sizes[0]))
+        self.layers.append(torch.nn.BatchNorm1d(self.hidden_sizes[0]))
         self.layers.append(activation)
+        self.layers.append(torch.nn.Dropout(0.2))
 
         for i in range(len(self.hidden_sizes) - 1):
             self.layers.append(torch.nn.Linear(self.hidden_sizes[i],self.hidden_sizes[i+1]))
+            self.layers.append(torch.nn.BatchNorm1d(self.hidden_sizes[i+1]))
             self.layers.append(activation)
+            self.layers.append(torch.nn.Dropout(0.2))
         
         self.layers.append(torch.nn.Linear(self.hidden_sizes[-1],self.n_basis))
         self.nn = torch.nn.Sequential(*self.layers)
@@ -44,9 +48,11 @@ class TTS(torch.nn.Module):
             config: an instance of the Config class
         """
         super().__init__()
+        torch.manual_seed(config.seed)
         self.config = config
         self.encoder = Encoder(config)
-        torch.manual_seed(config.seed)
+        self.bias = torch.nn.Parameter(torch.zeros(1))
+        
     
     def forward(self, X, Phis):
         """
@@ -58,10 +64,10 @@ class TTS(torch.nn.Module):
         """
         if self.config.dataloader_type == "iterative":
             h = self.encoder(X)
-            return [torch.matmul(Phi,h[d,:]) for d, Phi in enumerate(Phis)]
+            return [torch.matmul(Phi,h[d,:]) + self.bias for d, Phi in enumerate(Phis)]
         elif self.config.dataloader_type == "tensor":
             h = self.encoder(X)
-            return torch.matmul(Phis,torch.unsqueeze(h,-1)).squeeze(-1)
+            return torch.matmul(Phis,torch.unsqueeze(h,-1)).squeeze(-1) + self.bias
         
 
     def forecast_trajectory(self,x,t):
@@ -69,21 +75,29 @@ class TTS(torch.nn.Module):
         Args:
             x: a numpy array of shape (M,) where M is the number of static features
             t: a numpy array of shape (N,) where N is the number of time steps
+        Returns:
+            a numpy array of shape (N,) where N is the number of time steps
         """
         x = torch.unsqueeze(torch.from_numpy(x),0).float()
         bspline = BSplineBasis(self.config.n_basis, (0,self.config.T))
         Phi = torch.from_numpy(bspline.get_matrix(t)).float()
-        h = self.encoder(x)
-        return torch.matmul(Phi,h[0,:])
+        self.encoder.eval()
+        with torch.no_grad():
+            h = self.encoder(x)
+            return (torch.matmul(Phi,h[0,:]) + self.bias).cpu().numpy()
 
     def forecast_trajectories(self,X,t):
         """
         Args:
             X: a numpy array of shape (D,M) where D is the number of sample and M is the number of static features
             t: a numpy array of shape (N,) where N is the number of time steps
+        Returns:
+            a numpy array of shape (D,N) where D is the number of sample and N is the number of time steps
         """
         X = torch.from_numpy(X).float()
         bspline = BSplineBasis(self.config.n_basis, (0,self.config.T))
         Phi = torch.from_numpy(bspline.get_matrix(t)).float() # shape (N,B)
-        h = self.encoder(X) # shape (D,B)
-        return torch.matmul(h,Phi.T) # shape (D,N)
+        self.encoder.eval()
+        with torch.no_grad():
+            h = self.encoder(X) # shape (D,B)
+            return (torch.matmul(h,Phi.T)+self.bias).cpu().numpy() # shape (D,N)
