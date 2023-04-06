@@ -78,9 +78,10 @@ class TTS(torch.nn.Module):
         Returns:
             a numpy array of shape (N,) where N is the number of time steps
         """
-        x = torch.unsqueeze(torch.from_numpy(x),0).float()
+        device = self.bias.device
+        x = torch.unsqueeze(torch.from_numpy(x),0).float().to(device)
         bspline = BSplineBasis(self.config.n_basis, (0,self.config.T))
-        Phi = torch.from_numpy(bspline.get_matrix(t)).float()
+        Phi = torch.from_numpy(bspline.get_matrix(t)).float().to(device)
         self.encoder.eval()
         with torch.no_grad():
             h = self.encoder(x)
@@ -94,9 +95,10 @@ class TTS(torch.nn.Module):
         Returns:
             a numpy array of shape (D,N) where D is the number of sample and N is the number of time steps
         """
-        X = torch.from_numpy(X).float()
+        device = self.bias.device
+        X = torch.from_numpy(X).float().to(device)
         bspline = BSplineBasis(self.config.n_basis, (0,self.config.T))
-        Phi = torch.from_numpy(bspline.get_matrix(t)).float() # shape (N,B)
+        Phi = torch.from_numpy(bspline.get_matrix(t)).float().to(device) # shape (N,B)
         self.encoder.eval()
         with torch.no_grad():
             h = self.encoder(X) # shape (D,B)
