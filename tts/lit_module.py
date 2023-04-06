@@ -75,5 +75,5 @@ class LitTTS(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = OPTIMIZERS[self.config.training.optimizer](self.model.parameters(), lr=self.config.training.lr)
+        optimizer = OPTIMIZERS[self.config.training.optimizer](self.model.parameters(), lr=self.config.training.lr, weight_decay=self.config.training.weight_decay)
         return optimizer
