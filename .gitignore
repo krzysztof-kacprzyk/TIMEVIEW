@@ -131,3 +131,5 @@ dmypy.json
 lightning_logs/
 
 .lr_find_*
+
+logs/
