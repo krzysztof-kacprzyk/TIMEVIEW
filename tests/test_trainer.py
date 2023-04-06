@@ -30,7 +30,7 @@ def test_trainer_iterative(data_fixture):
     tts = TTS(config)
     litmodel = LitTTS(config, tts)
 
-    trainer = pl.Trainer(deterministic=True,devices=1,check_val_every_n_epoch=1,auto_lr_find=True,enable_model_summary = False,enable_progress_bar=False,auto_scale_batch_size=False,accelerator='cpu',max_epochs=10)
+    trainer = pl.Trainer(logger=False,enable_checkpointing=False,deterministic=True,devices=1,check_val_every_n_epoch=1,auto_lr_find=True,enable_model_summary = False,enable_progress_bar=False,auto_scale_batch_size=False,accelerator='cpu',max_epochs=10)
             
     trainer.tune(litmodel,train_dataloaders=train_dataloader)
             
@@ -44,7 +44,7 @@ def test_trainer_tensor(data_fixture):
     tts = TTS(config)
     litmodel = LitTTS(config, tts)
 
-    trainer = pl.Trainer(deterministic=True,devices=1,check_val_every_n_epoch=1,auto_lr_find=True,enable_model_summary = False,enable_progress_bar=False,auto_scale_batch_size=False,accelerator='cpu',max_epochs=10)
+    trainer = pl.Trainer(logger=False,enable_checkpointing=False,deterministic=True,devices=1,check_val_every_n_epoch=1,auto_lr_find=True,enable_model_summary = False,enable_progress_bar=False,auto_scale_batch_size=False,accelerator='cpu',max_epochs=10)
             
     trainer.tune(litmodel,train_dataloaders=train_dataloader)
             
