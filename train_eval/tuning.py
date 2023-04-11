@@ -1,6 +1,7 @@
 import os
 import optuna
 import json
+import pickle
 from tts.config import TuningConfig
 from train_eval.training import training
 from tts.data import synthetic_tumor_data, TTSDataset
@@ -53,7 +54,9 @@ def tuning(seed: int, tuning_dir: str,  n_trials: int):
         json.dump(best_hyperparameters, f)
 
     # save optuna study
-    study.save(os.path.join(tuning_dir, f'study_{seed}.pkl'))
+    study_save_path = os.path.join(tuning_dir, f'study_{seed}.pkl')
+    with open(study_save_path, 'wb') as f:
+        pickle.dump(study, f)
 
     # save optuna visualizations
     fig = optuna.visualization.plot_intermediate_values(study)
@@ -64,5 +67,7 @@ def tuning(seed: int, tuning_dir: str,  n_trials: int):
 
     fig = optuna.visualization.plot_param_importances(study)
     fig.write_image(os.path.join(tuning_dir, 'param_importance.png'))
+
+    print(f'[Tuning complete], saved tuning results to {tuning_dir}')
 
     return

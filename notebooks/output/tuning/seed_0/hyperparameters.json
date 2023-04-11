@@ -1,0 +1,1 @@
+{"hidden_size_0": 111, "hidden_size_1": 95, "hidden_size_2": 56, "activation": "tanh", "dropout_p": 0.029717922891644266, "lr": 0.000504912928617839, "batch_size": 128, "weight_decay": 2.987514437468935e-05}

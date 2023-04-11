@@ -89,18 +89,21 @@ class TuningConfig():
         dataset_split={'train': 0.8, 'val': 0.1, 'test': 0.1},
         dataloader_type='iterative'
     ):
-        
+
         # define hyperparameter search space
-        hidden_sizes = [trial.suggest_int(f'hidden_size_{i}', 16, 128) for i in range(3)]
+        hidden_sizes = [trial.suggest_int(
+            f'hidden_size_{i}', 16, 128) for i in range(3)]
+        # the activation search range might be a bit excessive, but it's a good example
         activation = trial.suggest_categorical(
-            'activation', 
+            'activation',
             ['relu', 'sigmoid', 'tanh', 'leaky_relu', 'elu', 'selu']
-            )
+        )
         dropout_p = trial.suggest_float('dropout_p', 0.0, 0.5)
 
         lr = trial.suggest_float('lr', 1e-4, 1e-2, log=True)
         batch_size = trial.suggest_categorical('batch_size', [16, 32, 64, 128])
-        weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True)
+        weight_decay = trial.suggest_float(
+            'weight_decay', 1e-6, 1e-3, log=True)
 
         encoder = {
             'hidden_sizes': hidden_sizes,
