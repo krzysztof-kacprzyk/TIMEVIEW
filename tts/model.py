@@ -17,6 +17,7 @@ class Encoder(torch.nn.Module):
         self.n_features = config.n_features
         self.n_basis = config.n_basis
         self.hidden_sizes =  config.encoder.hidden_sizes
+        self.dropout_p = config.encoder.dropout_p
 
         assert len(self.hidden_sizes) > 0
 
@@ -26,13 +27,13 @@ class Encoder(torch.nn.Module):
         self.layers.append(torch.nn.Linear(self.n_features,self.hidden_sizes[0]))
         self.layers.append(torch.nn.BatchNorm1d(self.hidden_sizes[0]))
         self.layers.append(activation)
-        self.layers.append(torch.nn.Dropout(0.2))
+        self.layers.append(torch.nn.Dropout(self.dropout_p))
 
         for i in range(len(self.hidden_sizes) - 1):
             self.layers.append(torch.nn.Linear(self.hidden_sizes[i],self.hidden_sizes[i+1]))
             self.layers.append(torch.nn.BatchNorm1d(self.hidden_sizes[i+1]))
             self.layers.append(activation)
-            self.layers.append(torch.nn.Dropout(0.2))
+            self.layers.append(torch.nn.Dropout(self.dropout_p))
         
         self.layers.append(torch.nn.Linear(self.hidden_sizes[-1],self.n_basis))
         self.nn = torch.nn.Sequential(*self.layers)
