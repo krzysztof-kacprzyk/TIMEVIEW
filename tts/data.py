@@ -1,6 +1,7 @@
 import torch
+import random
 import numpy as np
-from .config import Config
+from .config import Config, TuningConfig
 from .basis import BSplineBasis
 import pandas as pd
 from scipy.integrate import odeint
@@ -8,7 +9,7 @@ from scipy.integrate import odeint
 from abc import abstractmethod, ABC
 
 
-def _validate_data(X,ts,ys,T):
+def _validate_data(X, ts, ys, T):
     """
     This function verifies that the data is valid
     Args:
@@ -23,6 +24,7 @@ def _validate_data(X,ts,ys,T):
         assert ts[i].shape[0] == ys[i].shape[0]
         assert ts[i].max() <= T
         assert ts[i].min() >= 0
+
 
 def _pad_to_shape(a, shape):
     """
@@ -43,20 +45,21 @@ def _pad_to_shape(a, shape):
         assert a.shape[0] <= shape[0]
         assert a.shape[1] <= shape[1]
         b = np.zeros(shape)
-        b[:a.shape[0],:a.shape[1]] = a
+        b[:a.shape[0], :a.shape[1]] = a
     elif len(a.shape) == 3:
         assert a.shape[0] <= shape[0]
         assert a.shape[1] <= shape[1]
         assert a.shape[2] <= shape[2]
         b = np.zeros(shape)
-        b[:a.shape[0],:a.shape[1],:a.shape[2]] = a
+        b[:a.shape[0], :a.shape[1], :a.shape[2]] = a
     return b
 
+
 class TTSDataset(torch.utils.data.Dataset):
-     
+
     def __init__(self, config, data):
         """
-        This constructor is helpful when you have irregularly sampled trajectories. 
+        This constructor is helpful when you have irregularly sampled trajectories.
         Args:
             config: an instance of the Config class
             data: data can be any of the following:
@@ -72,18 +75,19 @@ class TTSDataset(torch.utils.data.Dataset):
         """
         self.config = config
         T = config.T
-        if isinstance(data,pd.DataFrame):
-            self._save_data(*self._extract_data_from_one_dataframe(data),T)
-        elif isinstance(data,tuple):
+        if isinstance(data, pd.DataFrame):
+            self._save_data(*self._extract_data_from_one_dataframe(data), T)
+        elif isinstance(data, tuple):
             if len(data) == 2:
-                self._save_data(*self._extract_data_from_two_dataframes(data[0],data[1]),T)
+                self._save_data(
+                    *self._extract_data_from_two_dataframes(data[0], data[1]), T)
             elif len(data) == 3:
-                _validate_data(data[0],data[1],data[2],T)        
-                self._save_data(data[0],data[1],data[2],T)
-        
+                _validate_data(data[0], data[1], data[2], T)
+                self._save_data(data[0], data[1], data[2], T)
+
         self._process_data()
 
-    def _extract_data_from_two_dataframes(self,df_static,df_trajectories):
+    def _extract_data_from_two_dataframes(self, df_static, df_trajectories):
         """
         This function extracts the data from two dataframes
         Args:
@@ -96,16 +100,19 @@ class TTSDataset(torch.utils.data.Dataset):
         ys = []
         for id in ids:
             df_static_id = df_static[df_static['id'] == id]
-            assert df_static_id.shape[0] == 1 # there should be only one row for each id
-            X.append(df_static_id[0,1:].values.astype(np.float32).reshape(1,-1))
-            df_trajectories_id = df_trajectories[df_trajectories['id'] == id].copy()
-            df_trajectories_id.sort_values(by='t',inplace=True)
+            # there should be only one row for each id
+            assert df_static_id.shape[0] == 1
+            X.append(df_static_id[0, 1:].values.astype(
+                np.float32).reshape(1, -1))
+            df_trajectories_id = df_trajectories[df_trajectories['id'] == id].copy(
+            )
+            df_trajectories_id.sort_values(by='t', inplace=True)
             ts.append(df_trajectories_id['t'].values.reshape(-1))
             ys.append(df_trajectories_id['y'].values.reshape(-1))
-        X = np.concatenate(X,axis=0)
-        return [X,ts,ys]
-    
-    def _extract_data_from_one_dataframe(self,df):
+        X = np.concatenate(X, axis=0)
+        return [X, ts, ys]
+
+    def _extract_data_from_one_dataframe(self, df):
         """
         This function extracts the data from one dataframe
         Args:
@@ -119,15 +126,16 @@ class TTSDataset(torch.utils.data.Dataset):
         ys = []
         for id in ids:
             df_id = df[df['id'] == id].copy()
-            X.append(df_id.iloc[0,1:-2].values.astype(np.float32).reshape(1,-1))
+            X.append(
+                df_id.iloc[0, 1:-2].values.astype(np.float32).reshape(1, -1))
             # print(X)
-            df_id.sort_values(by='t',inplace=True)
+            df_id.sort_values(by='t', inplace=True)
             ts.append(df_id['t'].values.reshape(-1))
             ys.append(df_id['y'].values.reshape(-1))
-        X = np.concatenate(X,axis=0)
-        return [X,ts,ys]
+        X = np.concatenate(X, axis=0)
+        return [X, ts, ys]
 
-    def _save_data(self,X,ts,ys,T):
+    def _save_data(self, X, ts, ys, T):
         self.X = X
         self.ts = ts
         self.ys = ys
@@ -141,14 +149,16 @@ class TTSDataset(torch.utils.data.Dataset):
         self.M = self.X.shape[1]
         self.Ns = [self.ts[i].shape[0] for i in range(len(self.ts))]
         self.N_max = max(self.Ns)
-            
+
         self.Phis = self._compute_matrices()
 
         if self.config.dataloader_type == 'tensor':
             # We pad ys and stack into a tensor
-            self.Y = torch.stack([torch.from_numpy(_pad_to_shape(y,(self.N_max,))).float() for y in self.ys],dim=0)
+            self.Y = torch.stack([torch.from_numpy(_pad_to_shape(
+                y, (self.N_max,))).float() for y in self.ys], dim=0)
             # We pad Phis and stack into a tensor
-            self.PHI = torch.stack([torch.from_numpy(_pad_to_shape(Phi,(self.N_max,self.config.n_basis))).float() for Phi in self.Phis],dim=0)
+            self.PHI = torch.stack([torch.from_numpy(_pad_to_shape(
+                Phi, (self.N_max, self.config.n_basis))).float() for Phi in self.Phis], dim=0)
             # We turn Ns into a tensor
             self.NS = torch.tensor(self.Ns)
 
@@ -158,22 +168,20 @@ class TTSDataset(torch.utils.data.Dataset):
             # Convert ys to a list of tensors
             self.ys = [torch.from_numpy(y).float() for y in self.ys]
 
-
     def _compute_matrices(self):
-        bspline = BSplineBasis(self.config.n_basis, (0,self.T))
+        bspline = BSplineBasis(self.config.n_basis, (0, self.T))
         Phis = list(bspline.get_all_matrices(self.ts))
         return Phis
-            
 
     def __len__(self):
         return self.D
-    
+
     def __getitem__(self, idx):
         if self.config.dataloader_type == 'iterative':
-            return self.X[idx,:], self.Phis[idx], self.ys[idx]
+            return self.X[idx, :], self.Phis[idx], self.ys[idx]
         elif self.config.dataloader_type == 'tensor':
-            return self.X[idx,:], self.PHI[idx,:,:], self.Y[idx,:], self.NS[idx]
-            
+            return self.X[idx, :], self.PHI[idx, :, :], self.Y[idx, :], self.NS[idx]
+
     def get_collate_fn(self):
 
         def iterative_collate_fn(batch):
@@ -185,7 +193,7 @@ class TTSDataset(torch.utils.data.Dataset):
                 ts.append(b[1])
                 ys.append(b[2])
             return torch.stack(Xs, dim=0), ts, ys
-        
+
         if self.config.dataloader_type == 'iterative':
             return iterative_collate_fn
         elif self.config.dataloader_type == 'tensor':
@@ -195,7 +203,7 @@ class TTSDataset(torch.utils.data.Dataset):
 
 #     def __init__(self, config, X, ts, ys, T):
 #         """
-#         This constructor is helpful when you have irregularly sampled trajectories. 
+#         This constructor is helpful when you have irregularly sampled trajectories.
 #         Args:
 #             config: an instance of the Config class
 #             X: numpy array of shape (D,M) where D is the number of samples and M is the number of static features
@@ -215,10 +223,10 @@ class TTSDataset(torch.utils.data.Dataset):
 #         bspline = BSplineBasis(self.config.n_basis, (0,self.T))
 #         Phis = [torch.from_numpy(Phi).float() for Phi in bspline.get_all_matrices(self.ts)]
 #         return Phis
-       
+
 #     def __getitem__(self, idx):
 #         return self.X[idx,:], self.Phis[idx], self.ys[idx]
-    
+
 #     def get_collate_fn(self):
 #         def iterative_collate_fn(batch):
 #             Xs = []
@@ -232,10 +240,10 @@ class TTSDataset(torch.utils.data.Dataset):
 #         return iterative_collate_fn
 
 # class _TensorDataset(torch.utils.data.TensorDataset, TTSDataset):
-    
+
 #     def __init__(self,config,X,ts,ys,T):
 #         """
-#         This function is helpful when you have irregularly sampled trajectories. 
+#         This function is helpful when you have irregularly sampled trajectories.
 #         Args:
 #             config: an instance of the Config class
 #             X: numpy array of shape (D,M) where D is the number of samples and M is the number of static features
@@ -249,7 +257,7 @@ class TTSDataset(torch.utils.data.Dataset):
 #         """
 
 #         TTSDataset.__init__(self,config,X,ts,ys,T)
-       
+
 #         bspline = BSplineBasis(config.n_basis, (0,self.T))
 #         Phis = [torch.from_numpy(_pad_to_shape(Phi,(self.N_max,config.n_basis))).float() for Phi in bspline.get_all_matrices(self.ts)]
 
@@ -311,7 +319,7 @@ class TTSDataset(torch.utils.data.Dataset):
 #             df_id.sort_values(by='t',inplace=True)
 #             ts.append(df_id['t'].values)
 #             ys.append(df_id['y'].values)
-        
+
 #         X = torch.from_numpy(np.concatenate(X,axis=0)).float()
 #         Ns = [ts[i].shape[0] for i in range(len(ts))]
 #         N_max = max(Ns)
@@ -324,7 +332,7 @@ class TTSDataset(torch.utils.data.Dataset):
 
 #         super().__init__(X,torch.stack(Phis,dim=0),torch.stack(ys,dim=0),torch.tensor(Ns))
 
-def create_dataloader(config,dataset,indices=None,shuffle=True):
+def create_dataloader(config, dataset, indices=None, shuffle=True):
     """
     Creates a dataloader for a subset of the dataset described by the list of indices
     Args:
@@ -343,7 +351,7 @@ def create_dataloader(config,dataset,indices=None,shuffle=True):
     if indices is not None:
         if not isinstance(indices, list):
             raise ValueError("indices must be a list")
-        
+
         # Verify that the list contains only integers
         for i in range(len(indices)):
             if not isinstance(indices[i], int):
@@ -351,20 +359,22 @@ def create_dataloader(config,dataset,indices=None,shuffle=True):
 
     if not isinstance(shuffle, bool):
         raise ValueError("shuffle must be a boolean")
-    
+
     gen = torch.Generator()
     seed = config.seed
     gen.manual_seed(seed)
-    
+
     if indices is None:
         subset = dataset
     else:
         subset = torch.utils.data.Subset(dataset, indices)
     collate_fn = dataset.get_collate_fn()
-    dataloader = torch.utils.data.DataLoader(subset, batch_size=config.batch_size, shuffle=shuffle, generator=gen, collate_fn=collate_fn)
+    dataloader = torch.utils.data.DataLoader(
+        subset, batch_size=config.batch_size, shuffle=shuffle, generator=gen, collate_fn=collate_fn)
     return dataloader
 
-def create_train_val_test_dataloaders(config,dataset):
+
+def create_train_val_test_dataloaders(config, dataset):
     """
     This function creates the train, validation, and test dataloaders.
     Args:
@@ -375,34 +385,43 @@ def create_train_val_test_dataloaders(config,dataset):
         train_loader: a torch.utils.data.DataLoader object
         val_loader: a torch.utils.data.DataLoader object
         test_loader: a torch.utils.data.DataLoader object
-    """ 
+    """
 
-    if not isinstance(config, Config):
+    # slight change to allow this assert to pass when tuning
+    if not (isinstance(config, Config) or isinstance(config, TuningConfig)):
         raise ValueError("config must be an instance of the Config class")
     if not isinstance(dataset, TTSDataset):
         raise ValueError("dataset must be an instance of the TTSDataset class")
-    
-    train_size = int(config.dataset_split.train * len(dataset))
-    val_size = int(config.dataset_split.val * len(dataset))
-    test_size = len(dataset) - train_size - val_size
 
-    gen = torch.Generator()
-    seed = config.seed
+    # this seeds the dataloaders so that each mini-batch is reproducible
+    def seed_worker(worker_id):
+        worker_seed=torch.initial_seed() % 2 ** 32
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+
+    train_size=int(config.dataset_split.train * len(dataset))
+    val_size=int(config.dataset_split.val * len(dataset))
+    test_size=len(dataset) - train_size - val_size
+
+    gen=torch.Generator()
+    seed=config.seed
     gen.manual_seed(seed)
 
-    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size], generator=gen)
+    train_dataset, val_dataset, test_dataset=torch.utils.data.random_split(
+        dataset, [train_size, val_size, test_size], generator=gen)
 
-    batch_size = config.training.batch_size
+    batch_size=config.training.batch_size
 
-    collate_fn = dataset.get_collate_fn()
+    collate_fn=dataset.get_collate_fn()
 
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, generator=gen,collate_fn=collate_fn)
-    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, shuffle=False, generator=gen,collate_fn=collate_fn)
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False, generator=gen,collate_fn=collate_fn)
+    train_dataloader=torch.utils.data.DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True, generator=gen, worker_init_fn=seed_worker, collate_fn=collate_fn)
+    val_dataloader=torch.utils.data.DataLoader(
+        val_dataset, batch_size=batch_size, shuffle=False, generator=gen, worker_init_fn=seed_worker, collate_fn=collate_fn)
+    test_dataloader=torch.utils.data.DataLoader(
+        test_dataset, batch_size=batch_size, shuffle=False, generator=gen, worker_init_fn=seed_worker, collate_fn=collate_fn)
 
     return train_dataloader, val_dataloader, test_dataloader
-
-
 
 
 def _tumor_volume(t, age, weight, initial_tumor_volume, start_time, dosage):
@@ -420,21 +439,21 @@ def _tumor_volume(t, age, weight, initial_tumor_volume, start_time, dosage):
         Vs: numpy array of real numbers that are the tumor volumes at times t
     """
 
-    RHO_0 = 2.0
+    RHO_0=2.0
 
-    K_0 = 1.0
-    K_1 = 0.01
+    K_0=1.0
+    K_1=0.01
 
-    BETA_0 = 50.0
+    BETA_0=50.0
 
-    GAMMA_0 = 5.0
+    GAMMA_0=5.0
 
-    V_min = 0.001
+    V_min=0.001
 
     # Set the parameters of the tumor model
-    rho = RHO_0 * (age / 20.0) ** 0.5
-    K = K_0 + K_1 * (weight)
-    beta = BETA_0 * (age/20.0) ** (-0.2)
+    rho=RHO_0 * (age / 20.0) ** 0.5
+    K=K_0 + K_1 * (weight)
+    beta=BETA_0 * (age/20.0) ** (-0.2)
 
     # Create chemotherapy function
     def C(t):
@@ -450,12 +469,12 @@ def _tumor_volume(t, age, weight, initial_tumor_volume, start_time, dosage):
             dVdt: a real number that is the rate of change of the tumor volume
         """
 
-        dVdt = rho * (V-V_min) * V * np.log(K / V) - beta * V * C(t)
+        dVdt=rho * (V-V_min) * V * np.log(K / V) - beta * V * C(t)
 
         return dVdt
-    
+
     # Integrate the tumor model
-    V = odeint(dVdt, initial_tumor_volume, t)[:,0]
+    V=odeint(dVdt, initial_tumor_volume, t)[:, 0]
     return V
 
 
@@ -474,21 +493,22 @@ def _tumor_volume_2(t, age, weight, initial_tumor_volume, dosage):
         Vs: numpy array of real numbers that are the tumor volumes at times t
     """
 
-    G_0 = 2.0
-    D_0 = 180.0
-    PHI_0 = 10
+    G_0=2.0
+    D_0=180.0
+    PHI_0=10
 
     # Set the parameters of the tumor model
     # rho = RHO_0 * (age / 20.0) ** 0.5
     # K = K_0 + K_1 * (weight)
     # beta = BETA_0 * (age/20.0) ** (-0.2)
 
-    g = G_0 * (age / 20.0) ** 0.5
-    d = D_0 * dosage/weight
+    g=G_0 * (age / 20.0) ** 0.5
+    d=D_0 * dosage/weight
     # sigmoid function
-    phi = 1 / (1 + np.exp(-dosage*PHI_0))
+    phi=1 / (1 + np.exp(-dosage*PHI_0))
 
     return initial_tumor_volume * (phi*np.exp(-d * t) + (1-phi)*np.exp(g * t))
+
 
 def _get_tumor_feature_ranges(*feautures):
     """
@@ -500,22 +520,23 @@ def _get_tumor_feature_ranges(*feautures):
         ranges: a dictionary that maps the tumor features to their ranges
     """
 
-    ranges = {}
+    ranges={}
     for feature in feautures:
         if feature in TUMOR_DATA_FEATURE_RANGES:
-            ranges[feature] = TUMOR_DATA_FEATURE_RANGES[feature]
+            ranges[feature]=TUMOR_DATA_FEATURE_RANGES[feature]
         else:
             raise ValueError(f"Invalid tumor feature: {feature}")
     return ranges
 
-TUMOR_DATA_FEATURE_RANGES = {
+
+TUMOR_DATA_FEATURE_RANGES={
     "age": (20, 80),
     "weight": (40, 100),
     "initial_tumor_volume": (0.1, 0.5),
     "start_time": (0.0, 1.0),
     "dosage": (0.0, 1.0)
 }
-    
+
 
 def synthetic_tumor_data(n_samples,  n_time_steps, time_horizon=1.0, noise_std=0.0, seed=0, equation="wilkerson"):
     """
@@ -539,43 +560,51 @@ def synthetic_tumor_data(n_samples,  n_time_steps, time_horizon=1.0, noise_std=0
     """
 
     # Create the random number generator
-    gen = np.random.default_rng(seed)
+    gen=np.random.default_rng(seed)
 
     # Sample age
-    age = gen.uniform(TUMOR_DATA_FEATURE_RANGES['age'][0],TUMOR_DATA_FEATURE_RANGES['age'][1], size=n_samples)
+    age=gen.uniform(
+        TUMOR_DATA_FEATURE_RANGES['age'][0], TUMOR_DATA_FEATURE_RANGES['age'][1], size=n_samples)
     # Sample weight
-    weight = gen.uniform(TUMOR_DATA_FEATURE_RANGES['weight'][0],TUMOR_DATA_FEATURE_RANGES['weight'][1], size=n_samples)
+    weight=gen.uniform(
+        TUMOR_DATA_FEATURE_RANGES['weight'][0], TUMOR_DATA_FEATURE_RANGES['weight'][1], size=n_samples)
     # Sample initial tumor volume
-    tumor_volume = gen.uniform(TUMOR_DATA_FEATURE_RANGES['initial_tumor_volume'][0],TUMOR_DATA_FEATURE_RANGES['initial_tumor_volume'][1], size=n_samples)
+    tumor_volume=gen.uniform(TUMOR_DATA_FEATURE_RANGES['initial_tumor_volume']
+                               [0], TUMOR_DATA_FEATURE_RANGES['initial_tumor_volume'][1], size=n_samples)
     # Sample start time of chemotherapy
-    start_time = gen.uniform(TUMOR_DATA_FEATURE_RANGES['start_time'][0],TUMOR_DATA_FEATURE_RANGES['start_time'][1], size=n_samples)
+    start_time=gen.uniform(
+        TUMOR_DATA_FEATURE_RANGES['start_time'][0], TUMOR_DATA_FEATURE_RANGES['start_time'][1], size=n_samples)
     # Sample chemotherapy dosage
-    dosage = gen.uniform(TUMOR_DATA_FEATURE_RANGES['dosage'][0],TUMOR_DATA_FEATURE_RANGES['dosage'][1], size=n_samples)
+    dosage=gen.uniform(
+        TUMOR_DATA_FEATURE_RANGES['dosage'][0], TUMOR_DATA_FEATURE_RANGES['dosage'][1], size=n_samples)
 
     # Combine the static features into a single array
     if equation == "wilkerson":
-        X = np.stack((age, weight, tumor_volume, dosage), axis=1)
+        X=np.stack((age, weight, tumor_volume, dosage), axis=1)
     elif equation == "geng":
-        X = np.stack((age, weight, tumor_volume, start_time, dosage), axis=1)
+        X=np.stack((age, weight, tumor_volume, start_time, dosage), axis=1)
 
     # Create the time points
-    ts = [np.linspace(0.0, time_horizon, n_time_steps) for i in range(n_samples)]
+    ts=[np.linspace(0.0, time_horizon, n_time_steps)
+          for i in range(n_samples)]
 
     # Create the tumor volumes
-    ys = []
+    ys=[]
 
     for i in range(n_samples):
 
         # Unpack the static features
         if equation == "wilkerson":
-            age, weight, tumor_volume, dosage = X[i, :]
+            age, weight, tumor_volume, dosage=X[i, :]
         elif equation == "geng":
-            age, weight, tumor_volume, start_time, dosage = X[i, :]
+            age, weight, tumor_volume, start_time, dosage=X[i, :]
 
         if equation == "wilkerson":
-            ys.append(_tumor_volume_2(ts[i], age, weight, tumor_volume, dosage))
+            ys.append(_tumor_volume_2(
+                ts[i], age, weight, tumor_volume, dosage))
         elif equation == "geng":
-            ys.append(_tumor_volume(ts[i], age, weight, tumor_volume, start_time, dosage))
+            ys.append(_tumor_volume(ts[i], age, weight,
+                      tumor_volume, start_time, dosage))
 
         # Add noise to the tumor volumes
         ys[i] += gen.normal(0.0, noise_std, size=n_time_steps)
@@ -585,7 +614,7 @@ def synthetic_tumor_data(n_samples,  n_time_steps, time_horizon=1.0, noise_std=0
 
 # def create_dataloaders(config,X,ts,ys,T,seed=0):
 #     """
-#     This function is helpful when you have irregularly sampled trajectories. 
+#     This function is helpful when you have irregularly sampled trajectories.
 #     Args:
 #         config: an instance of the Config class
 #         X: numpy array of shape (D,M) where D is the number of samples and M is the number of static features
@@ -597,11 +626,3 @@ def synthetic_tumor_data(n_samples,  n_time_steps, time_horizon=1.0, noise_std=0
 #         val_loader: a torch.utils.data.DataLoader object
 #         test_loader: a torch.utils.data.DataLoader object
 #     """
-
-
-    
-
-
-
-
-
