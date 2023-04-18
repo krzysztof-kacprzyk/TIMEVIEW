@@ -352,11 +352,6 @@ def create_dataloader(config, dataset, indices=None, shuffle=True):
         if not isinstance(indices, list):
             raise ValueError("indices must be a list")
 
-        # Verify that the list contains only integers
-        for i in range(len(indices)):
-            if not isinstance(indices[i], int):
-                raise ValueError("indices must be a list of integers")
-
     if not isinstance(shuffle, bool):
         raise ValueError("shuffle must be a boolean")
 
@@ -370,7 +365,7 @@ def create_dataloader(config, dataset, indices=None, shuffle=True):
         subset = torch.utils.data.Subset(dataset, indices)
     collate_fn = dataset.get_collate_fn()
     dataloader = torch.utils.data.DataLoader(
-        subset, batch_size=config.batch_size, shuffle=shuffle, generator=gen, collate_fn=collate_fn)
+        subset, batch_size=config.training.batch_size, shuffle=shuffle, generator=gen, collate_fn=collate_fn)
     return dataloader
 
 
