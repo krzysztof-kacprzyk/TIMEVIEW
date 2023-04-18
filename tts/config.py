@@ -78,7 +78,7 @@ class Config():
         self.dataloader_type = dataloader_type
 
 
-class TuningConfig():
+class TuningConfig(Config):
     def __init__(
         self,
         trial,
