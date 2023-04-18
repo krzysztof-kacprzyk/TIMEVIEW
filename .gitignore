@@ -135,3 +135,6 @@ lightning_logs/
 logs/
 
 results/
+
+# VSCode
+.vscode/
