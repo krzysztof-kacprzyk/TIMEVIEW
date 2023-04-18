@@ -172,12 +172,11 @@ def run_all_benchmarks(dataset: XTYDataset, benchmarks: list, dataset_split = [0
     n = len(dataset)
     train_indices = gen.choice(n, int(n*dataset_split[0]), replace=False)
     train_indices = [i.item() for i in train_indices]
-    print(train_indices)
     val_indices = gen.choice(list(set(range(n)) - set(train_indices)), int(n*dataset_split[1]), replace=False)
     val_indices = [i.item() for i in val_indices]
     test_indices = list(set(range(n)) - set(train_indices) - set(val_indices))
-    results = {'name':[],'mean':[],'std':[]}
 
+    results = {'name':[],'mean':[],'std':[]}
 
     timestamp = datetime.now().strftime('%Y-%m-%dT%H-%M-%S')
     benchmarks_dir = os.path.join(benchmarks_dir, timestamp)

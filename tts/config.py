@@ -101,7 +101,7 @@ class TuningConfig(Config):
         dropout_p = trial.suggest_float('dropout_p', 0.0, 0.5)
 
         lr = trial.suggest_float('lr', 1e-4, 1e-2, log=True)
-        batch_size = trial.suggest_categorical('batch_size', [16, 32, 64, 128])
+        batch_size = trial.suggest_categorical('batch_size', [64, 128])
         weight_decay = trial.suggest_float(
             'weight_decay', 1e-6, 1e-3, log=True)
 
