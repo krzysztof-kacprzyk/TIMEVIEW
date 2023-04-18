@@ -10,6 +10,7 @@ from optuna.integration import PyTorchLightningPruningCallback
 import pandas as pd
 from sklearn.metrics import mean_squared_error, r2_score
 from interpret.glassbox import ExplainableBoostingRegressor
+from xgboost import XGBRegressor
 
 from train_eval.training import training
 from train_eval.tuning import tuning
@@ -108,7 +109,12 @@ class BaseBenchmark(ABC):
         self.prepare_data(dataset, train_indices, val_indices, test_indices)
 
         # Tune the model
-        best_hyperparameters = self.tune(n_trials=n_tune, seed=tuning_seed, benchmarks_dir=benchmarks_dir)
+        if n_tune > 0:
+            print(f"[Tuning for {n_tune} trials]")
+            best_hyperparameters = self.tune(n_trials=n_tune, seed=tuning_seed, benchmarks_dir=benchmarks_dir)
+        else:
+            print(f"[No tuning, using default hyperparameters]")
+            best_hyperparameters = None
 
         print(f"[Training for {n_trials} trials with best hyperparameters]")
 
@@ -217,7 +223,10 @@ class GAM(BaseBenchmark):
 
     def get_final_model(self, parameters, seed):
         """Get model for testing."""
-        return ExplainableBoostingRegressor(**parameters,interactions=0,random_state=seed)
+        if parameters is None:
+            return ExplainableBoostingRegressor(interactions=0,random_state=seed)
+        else:
+            return ExplainableBoostingRegressor(**parameters,interactions=0,random_state=seed)
     
     def prepare_data(self, dataset: XTYDataset, train_indices, val_indices, test_indices):
         
@@ -275,37 +284,70 @@ class XGBBenchmark(BaseBenchmark):
     def get_model_for_tuning(self, trial, seed):
         """Get model for tuning."""
         parameters = {
-            'max_depth': trial.suggest_int('max_depth', 3, 10),
-            'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.1, log=True),
-            'gamma': trial.suggest_float('gamma', 1e-6, 1.0, log=True),
+            'n_estimators': trial.suggest_int('n_estimators', 10, 1000),
+            'eta': trial.suggest_float('eta', 0.001, 0.1, log=True),
             'min_child_weight': trial.suggest_int('min_child_weight', 1, 10),
+            'max_depth': trial.suggest_int('max_depth', 3, 9),
+            'gamma': trial.suggest_float('gamma', 1e-8, 1.0, log=True),
             'subsample': trial.suggest_float('subsample', 0.1, 1.0),
             'colsample_bytree': trial.suggest_float('colsample_bytree', 0.1, 1.0),
-            'reg_lambda': trial.suggest_float('reg_lambda', 0.0, 1.0),
-            'reg_alpha': trial.suggest_float('reg_alpha', 0.0, 1.0)
+            'lambda': trial.suggest_float('lambda', 1e-8, 1.0, log=True),
         }
         return XGBRegressor(**parameters, random_state=seed)
 
     def get_final_model(self, parameters, seed):
         """Get model for testing."""
-        return XGBRegressor(**parameters, random_state=seed)
+        if parameters is None:
+            return XGBRegressor(random_state=seed)
+        else:
+            return XGBRegressor(**parameters, random_state=seed)
     
-    
-    def train(self, model, dataset, train_indices, val_indices, test_indices):
-        """Train model."""
-        data = dataset.get_single_matrix()
-        X = data[:,:-1]
-        y = data[:,-1]
-
-        model.fit(X[train_indices,:], y[train_indices])
+    def prepare_data(self, dataset: XTYDataset, train_indices, val_indices, test_indices):
         
+        data_train = np.asfortranarray(dataset.get_single_matrix(train_indices))
+        self.X_train = data_train[:,:-1]    
+        self.y_train = data_train[:,-1]
+        
+        data_val = np.asfortranarray(dataset.get_single_matrix(val_indices))
+        self.X_val = data_val[:,:-1]
+        self.y_val = data_val[:,-1]
 
-        train_loss = mean_squared_error(y[train_indices], model.predict(X[train_indices,:]))
-        val_loss = mean_squared_error(y[val_indices], model.predict(X[val_indices,:]))
-        test_loss = r2_score(y[test_indices], model.predict(X[test_indices,:]))
+        # data_test = np.asfortranarray(dataset.get_single_matrix(test_indices))
+        # self.X_test = data_test[:,:-1]
+        # self.y_test = data_test[:,-1]
+
+        self.test_samples = []
+        for i in test_indices:
+            X = dataset.get_single_matrix([i])[:,:-1]
+            y = dataset.get_single_matrix([i])[:,-1]
+            self.test_samples.append((X,y))
+    
+    def train(self, model, tuning=False):
+        """Train model."""
+        
+        if not tuning:
+            X_train = np.concatenate([self.X_train, self.X_val], axis=0)
+            y_train = np.concatenate([self.y_train, self.y_val], axis=0)
+        else:
+            X_train = self.X_train
+            y_train = self.y_train
 
 
-        return {'train_loss': train_loss, 'val_loss': val_loss, 'test_loss': test_loss}    
+        model.fit(X_train, y_train)
+
+        train_loss = mean_squared_error(y_train, model.predict(X_train))
+        val_loss = mean_squared_error(self.y_val, model.predict(self.X_val))
+        
+        test_loss = 0
+        if not tuning:
+            for sample in self.test_samples:
+                X, y = sample
+                y_pred = model.predict(X)
+                err = mean_squared_error(y, y_pred)
+                test_loss += err
+            test_loss /= len(self.test_samples)
+
+        return {'train_loss': train_loss, 'val_loss': val_loss, 'test_loss': test_loss}
 
 class TTSBenchmark(BaseBenchmark):
     """TTS benchmark."""
@@ -327,24 +369,28 @@ class TTSBenchmark(BaseBenchmark):
        
     def get_final_model(self, parameters, seed):
         """Get model for testing."""
-        encoder = {
-            'hidden_sizes': [parameters[f'hidden_size_{i}'] for i in range(3)],
-            'activation': parameters['activation'],
-            'dropout_p': parameters['dropout_p']
-        }
-        training = {
-            'batch_size': parameters['batch_size'],
-            'lr': parameters['lr'],
-            'weight_decay': parameters['weight_decay'],
-            'optimizer': 'adam'
-        }
-        config = Config(n_features=self.config.n_features,
-                        n_basis=self.config.n_basis,
-                        T=self.config.T,
-                        seed=seed,
-                        encoder=encoder,
-                        training=training,
-                        dataloader_type=self.config.dataloader_type)
+        if parmaters is not None:
+            encoder = {
+                'hidden_sizes': [parameters[f'hidden_size_{i}'] for i in range(3)],
+                'activation': parameters['activation'],
+                'dropout_p': parameters['dropout_p']
+            }
+            training = {
+                'batch_size': parameters['batch_size'],
+                'lr': parameters['lr'],
+                'weight_decay': parameters['weight_decay'],
+                'optimizer': 'adam'
+            }
+            config = Config(n_features=self.config.n_features,
+                            n_basis=self.config.n_basis,
+                            T=self.config.T,
+                            seed=seed,
+                            encoder=encoder,
+                            training=training,
+                            dataloader_type=self.config.dataloader_type)
+        else:
+            config = self.config
+
         model = TTS(config)
         litmodel = LitTTS(config, model)
         return litmodel
