@@ -64,7 +64,7 @@ class BaseBenchmark(ABC):
         print('[Best hyperparameter configuration]:')
         print(best_hyperparameters)
 
-        tuning_dir = os.path.join(benchmarks_dir, self.name, f'seed_{seed}', 'tuning')
+        tuning_dir = os.path.join(benchmarks_dir, self.name, 'tuning')
         os.makedirs(tuning_dir, exist_ok=True)
 
         # Save best hyperparameters
@@ -128,7 +128,7 @@ class BaseBenchmark(ABC):
 
         # Save the losses
         df = pd.DataFrame({'seed':training_seeds,'test_loss': test_losses})
-        results_folder = os.path.join(benchmarks_dir, self.name, f'seed_{seed}', 'results')
+        results_folder = os.path.join(benchmarks_dir, self.name, 'results')
         os.makedirs(results_folder, exist_ok=True)
         test_losses_save_path = os.path.join(results_folder, f'test_losses.csv')
         df.to_csv(test_losses_save_path, index=False)
