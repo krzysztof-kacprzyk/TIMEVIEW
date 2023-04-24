@@ -21,6 +21,10 @@ import torch
 from datasets import load_dataset, save_dataset
 from baselines import GAMBenchmark, XGBBenchmark, TTSBenchmark, BaseBenchmark, get_baseline
 
+import argparse
+
+import time
+
 def generate_indices(n, train_size, val_size, seed=0):
     gen = np.random.default_rng(seed)
     train_indices = gen.choice(n, int(n*train_size), replace=False)
@@ -31,7 +35,7 @@ def generate_indices(n, train_size, val_size, seed=0):
     return train_indices, val_indices, test_indices
 
 
-def create_benchmark_datasets(dataset_description_path='dataset_descriptions'):
+def create_benchmark_datasets_if_not_exist(dataset_description_path='dataset_descriptions'):
 
     datasets = [
         {
@@ -45,6 +49,11 @@ def create_benchmark_datasets(dataset_description_path='dataset_descriptions'):
             'seed': 0,
             'equation': 'wilkerson'}
         },
+        {
+        'dataset_name': 'tumor',
+        'dataset_builder': 'TumorDataset',
+        'dataset_dictionary': {}
+        }
     ]
 
     # Check if the dataset description directory exists and create it if not
@@ -80,6 +89,7 @@ def run_benchmarks(dataset_name, benchmarks: dict, dataset_split = [0.7,0.15,0.1
 
     # Add a row to the DataFrame
     timestamp = datetime.now().strftime('%Y-%m-%dT%H-%M-%S')
+    
     df = df.append({'timestamp':timestamp, 'dataset_name':dataset_name, 'n_trials':n_trials, 'n_tune':n_tune, 'train_size':dataset_split[0], 'val_size':dataset_split[1], 'seed':seed}, ignore_index=True)
     # Save the DataFrame
     df.to_csv(os.path.join(benchmarks_dir, 'summary.csv'))
@@ -87,7 +97,7 @@ def run_benchmarks(dataset_name, benchmarks: dict, dataset_split = [0.7,0.15,0.1
     # Generate train, validation, and test indices
     train_indices, val_indices, test_indices = generate_indices(len(dataset), dataset_split[0], dataset_split[1], seed=seed)
 
-    results = {'name':[],'mean':[],'std':[]}
+    results = {'name':[],'mean':[],'std':[], 'time_elapsed':[]}
 
     benchmarks_dir = os.path.join(benchmarks_dir, timestamp)
     # Check if the benchmarks directory exists and create it if not
@@ -99,11 +109,14 @@ def run_benchmarks(dataset_name, benchmarks: dict, dataset_split = [0.7,0.15,0.1
         pickle.dump(benchmarks, f)
     
     for baseline_name, parameter_dict in benchmarks.items():
+        time_start = time.time()
         benchmark = get_baseline(baseline_name, parameter_dict)
         losses = benchmark.run(dataset, train_indices, val_indices, test_indices, n_trials=n_trials, n_tune=n_tune, seed=seed, benchmarks_dir=benchmarks_dir, timestamp=timestamp)
+        time_end = time.time()
         results['name'].append(benchmark.name)
         results['mean'].append(np.mean(losses))
         results['std'].append(np.std(losses))
+        results['time_elapsed'].append(time_end - time_start)
 
     # Create a dataframe with the results
     df = pd.DataFrame(results)
@@ -175,21 +188,28 @@ def get_dataset_and_indices_from_benchmark(timestamp, benchmarks_dir='benchmarks
 
 if __name__ == "__main__":
 
-    global_seed = 0
+    parser = argparse.ArgumentParser(description='Run benchmarks.')
+    parser.add_argument('--datasets', nargs='+', help='List of datasets to run benchmarks on.')
+    parser.add_argument('--baselines', nargs='+', help='List of baselines to run.')
+    parser.add_argument('--n_trials', type=int, default=1, help='Number of trials to run.')
+    parser.add_argument('--n_tune', type=int, default=1, help='Number of tuning trials to run.')
+    parser.add_argument('--seed', type=int, default=0, help='Random seed.')
+
+    args = parser.parse_args()
+
+    global_seed = args.seed
 
     dataset_description_path = 'dataset_descriptions'
     benchmarks_dir = 'benchmarks'
 
-    create_benchmark_datasets(dataset_description_path=dataset_description_path)
+    create_benchmark_datasets_if_not_exist(dataset_description_path=dataset_description_path)
 
-    dataset_names = [
-        'synthetic_tumor_wilkerson_1'
-    ]
+    dataset_names = args.datasets
 
 
     benchmark_options = {
-        'n_trials': 1,
-        'n_tune': 1,
+        'n_trials': args.n_trials,
+        'n_tune': args.n_tune,
         'seed': global_seed,
         'dataset_split': [0.7,0.15,0.15],
         'benchmarks_dir': benchmarks_dir,
@@ -197,16 +217,35 @@ if __name__ == "__main__":
     }
 
     # Synthetic tumor Wilkerson 1
-    dataset_name = dataset_names[0]
-    
-    tts_config = Config(n_features=4, n_basis=5, T=1, seed=global_seed, dataloader_type='iterative')
-    benchmarks = {
-        'XGB': {},
-        'GAM': {},
-        'TTS': {'config': tts_config}
-    }
+    if "synthetic_tumor_wilkerson_1" in dataset_names:
+        dataset_name = 'synthetic_tumor_wilkerson_1'
 
-    run_benchmarks(dataset_name, benchmarks, **benchmark_options)
+        benchmarks = {}
+
+        if 'XGB' in args.baselines:
+            benchmarks['XGB'] = {}
+        if 'GAM' in args.baselines:
+            benchmarks['GAM'] = {}
+        if 'TTS' in args.baselines:
+            tts_config = Config(n_features=4, n_basis=5, T=1, seed=global_seed, dataloader_type='iterative')
+            benchmarks['TTS'] = {'config': tts_config}
+
+        run_benchmarks(dataset_name, benchmarks, **benchmark_options)
+
+    if 'tumor' in dataset_names:
+        dataset_name = 'tumor'
+
+        benchmarks = {}
+
+        if 'XGB' in args.baselines:
+            benchmarks['XGB'] = {}
+        if 'GAM' in args.baselines:
+            benchmarks['GAM'] = {}
+        if 'TTS' in args.baselines:
+            tts_config = Config(n_features=2, n_basis=5, T=365, seed=global_seed, dataloader_type='iterative')
+            benchmarks['TTS'] = {'config': tts_config}
+
+        run_benchmarks(dataset_name, benchmarks, **benchmark_options)
 
 
 
