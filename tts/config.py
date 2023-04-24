@@ -31,7 +31,9 @@ class Config():
                  training={'optimizer': 'adam', 'lr': 1e-3,
                            'batch_size': 32, 'weight_decay': 1e-5},
                  dataset_split={'train': 0.8, 'val': 0.1, 'test': 0.1},
-                 dataloader_type='iterative'):
+                 dataloader_type='iterative',
+                 device='cpu',
+                 num_epochs=200):
 
         if not isinstance(n_features, int):
             raise ValueError("n_features must be an integer > 0")
@@ -76,6 +78,9 @@ class Config():
         self.training = SimpleNamespace(**training)
         self.dataset_split = SimpleNamespace(**dataset_split)
         self.dataloader_type = dataloader_type
+        self.device = device
+        self.num_epochs = num_epochs
+
 
 
 class TuningConfig(Config):
@@ -87,7 +92,9 @@ class TuningConfig(Config):
         T=1,
         seed=42,
         dataset_split={'train': 0.8, 'val': 0.1, 'test': 0.1},
-        dataloader_type='iterative'
+        dataloader_type='iterative',
+        device='cpu',
+        num_epochs=200
     ):
 
         # define hyperparameter search space
@@ -160,3 +167,6 @@ class TuningConfig(Config):
         self.training = SimpleNamespace(**training)
         self.dataset_split = SimpleNamespace(**dataset_split)
         self.dataloader_type = dataloader_type
+        self.device = device
+        self.num_epochs = num_epochs
+

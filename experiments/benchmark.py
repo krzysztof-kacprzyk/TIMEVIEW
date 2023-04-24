@@ -227,7 +227,7 @@ if __name__ == "__main__":
         if 'GAM' in args.baselines:
             benchmarks['GAM'] = {}
         if 'TTS' in args.baselines:
-            tts_config = Config(n_features=4, n_basis=5, T=1, seed=global_seed, dataloader_type='iterative')
+            tts_config = Config(n_features=4, n_basis=5, T=1, seed=global_seed, dataloader_type='iterative', num_epochs=400, device='gpu')
             benchmarks['TTS'] = {'config': tts_config}
 
         run_benchmarks(dataset_name, benchmarks, **benchmark_options)
@@ -242,7 +242,7 @@ if __name__ == "__main__":
         if 'GAM' in args.baselines:
             benchmarks['GAM'] = {}
         if 'TTS' in args.baselines:
-            tts_config = Config(n_features=2, n_basis=5, T=365, seed=global_seed, dataloader_type='iterative')
+            tts_config = Config(n_features=2, n_basis=5, T=365, seed=global_seed, dataloader_type='iterative', num_epochs=400, device='gpu')
             benchmarks['TTS'] = {'config': tts_config}
 
         run_benchmarks(dataset_name, benchmarks, **benchmark_options)

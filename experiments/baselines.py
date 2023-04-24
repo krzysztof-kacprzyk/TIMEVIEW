@@ -65,7 +65,13 @@ class BaseBenchmark(ABC):
         with open(study_save_path, 'wb') as f:
             pickle.dump(study, f)
 
-         # save optuna visualizations
+        # Save trials dataframe
+        df = study.trials_dataframe()
+        df.set_index('number', inplace=True)
+        df_save_path = os.path.join(tuning_dir, f'trials_dataframe.csv')
+        df.to_csv(df_save_path)
+
+        # save optuna visualizations
         # fig = optuna.visualization.plot_intermediate_values(study)
         # fig.write_image(os.path.join(tuning_dir, 'intermediate_values.png'))
 
@@ -312,7 +318,15 @@ class TTSBenchmark(BaseBenchmark):
     
     def get_model_for_tuning(self, trial, seed):
         """Get model for tuning."""
-        config = TuningConfig(trial,n_features=self.config.n_features, n_basis=self.config.n_basis, T=self.config.T, seed=self.config.seed)
+        config = TuningConfig(
+                            trial,
+                            n_features=self.config.n_features,
+                            n_basis=self.config.n_basis,
+                            T=self.config.T,
+                            seed=self.config.seed,
+                            device=self.config.device,
+                            num_epochs=self.config.num_epochs,
+                            dataloader_type=self.config.dataloader_type)
         litmodel = LitTTS(config)
         tuning_callback = PyTorchLightningPruningCallback(trial, monitor='val_loss')
         return (litmodel, tuning_callback)
@@ -337,7 +351,9 @@ class TTSBenchmark(BaseBenchmark):
                             seed=seed,
                             encoder=encoder,
                             training=training,
-                            dataloader_type=self.config.dataloader_type)
+                            dataloader_type=self.config.dataloader_type,
+                            device=self.config.device,
+                            num_epochs=self.config.num_epochs)
         else:
             config = self.config
 
@@ -399,8 +415,8 @@ class TTSBenchmark(BaseBenchmark):
             'auto_lr_find': True,
             'enable_model_summary': False,
             'enable_progress_bar': False,
-            'accelerator': 'cpu',
-            'max_epochs': 200,      # i would recommend increasing this, it appears your model hits max_epochs every time, suggesting it could be trained more
+            'accelerator': config.device,
+            'max_epochs': config.num_epochs,
             'logger': tb_logger,
             'check_val_every_n_epoch': 10,
             'log_every_n_steps': 1,
@@ -418,6 +434,8 @@ class TTSBenchmark(BaseBenchmark):
         model=model,
         train_dataloaders=train_dataloader,
         val_dataloaders=val_dataloader)
+
+        print(f"Finished after {trainer.current_epoch} epochs.")
 
         train_loss = trainer.logged_metrics['train_loss']
         print(f"train_loss: {train_loss}")
