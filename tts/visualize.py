@@ -35,3 +35,34 @@ def simple_interactive_plot(f, time_horizon, trajectory_range, feature_ranges, n
         sliders[k] = FloatSlider(min=v[0], max=v[1], step=0.01, value=v[0])
 
     interact(plot_f, **sliders);
+
+
+def simple_tts_plot(litmodel, dataset, trajectory_range, n_points=100):
+    """
+    litmodel: a LitModel object
+    dataset: a BaseDataset object
+    trajectory_range: the range of the trajectory, tuple (y_min, y_max)
+    n_points: number of points to plot
+    """
+    # Get the time horizon and trajectory range
+    time_horizon = litmodel.config.T
+    feature_names = dataset.get_feature_names()
+    feature_ranges = dataset.get_feature_ranges()
+
+    def trajectory(t, **x):
+        features = np.array([x[feature_name] for feature_name in feature_names])
+        return litmodel.model.forecast_trajectory(features,t)
+    
+    simple_interactive_plot(trajectory, time_horizon, trajectory_range, feature_ranges, n_points)
+
+
+def advanced_tts_plot(litmodel, dataset, trajectory_range, n_points=100):
+    pass
+
+
+def template_from_coeffs(coeffs):
+    """
+    coeffs: a list of coefficients, e.g. [1, 2, 3]
+    """
+    pass
+    

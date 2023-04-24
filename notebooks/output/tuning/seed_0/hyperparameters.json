@@ -1,1 +1,0 @@
-{"hidden_size_0": 114, "hidden_size_1": 112, "hidden_size_2": 55, "activation": "sigmoid", "dropout_p": 0.406150720682207, "lr": 0.002362435087956587, "batch_size": 32, "weight_decay": 1.1589906009340726e-06}

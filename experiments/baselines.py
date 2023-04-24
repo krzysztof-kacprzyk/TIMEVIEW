@@ -12,32 +12,20 @@ from sklearn.metrics import mean_squared_error, r2_score
 from interpret.glassbox import ExplainableBoostingRegressor
 from xgboost import XGBRegressor
 
-from train_eval.training import training
-from train_eval.tuning import tuning
+from tts.training import training
+# from tts.tuning import tuning
 
-from tts.data import TTSDataset, create_dataloader
+from tts.data import TTSDataset, create_dataloader, BaseDataset
 from tts.config import TuningConfig, Config
 from tts.model import TTS
 from tts.lit_module import LitTTS
 import pytorch_lightning as pl
 import torch
 
-class XTYDataset():
-    def __init__(self, X, ts, ys):
-        self.X = X
-        self.ts = ts
-        self.ys = ys
+def get_baseline(name, parameter_dict=None):
+    class_name = name + 'Benchmark'
+    return globals()[class_name](**parameter_dict)
 
-    def __len__(self):
-        return len(self.X)
-    
-    def get_single_matrix(self, indices):
-        samples = []
-        for i in indices:
-            n_rows = len(self.ts[i])
-            X_i_tiled = np.tile(self.X[i], (n_rows, 1))
-            samples.append(np.concatenate((X_i_tiled, np.expand_dims(self.ts[i],1), np.expand_dims(self.ys[i],1)), axis=1))
-        return np.concatenate(samples, axis=0)
             
 
 class BaseBenchmark(ABC):
@@ -91,7 +79,7 @@ class BaseBenchmark(ABC):
 
         return best_hyperparameters
 
-    def run(self, dataset: XTYDataset, train_indices, val_indices, test_indices, n_trials, n_tune, seed, benchmarks_dir, **kwargs):
+    def run(self, dataset: BaseDataset, train_indices, val_indices, test_indices, n_trials, n_tune, seed, benchmarks_dir, **kwargs):
         """Run the benchmark."""
         self.benchmarks_dir = benchmarks_dir
 
@@ -128,15 +116,15 @@ class BaseBenchmark(ABC):
 
         # Save the losses
         df = pd.DataFrame({'seed':training_seeds,'test_loss': test_losses})
-        results_folder = os.path.join(benchmarks_dir, self.name, 'results')
+        results_folder = os.path.join(benchmarks_dir, self.name, 'final')
         os.makedirs(results_folder, exist_ok=True)
-        test_losses_save_path = os.path.join(results_folder, f'test_losses.csv')
+        test_losses_save_path = os.path.join(results_folder, f'results.csv')
         df.to_csv(test_losses_save_path, index=False)
         
         return test_losses
 
     @abstractmethod
-    def prepare_data(self, dataset: XTYDataset, train_indices, val_indices, test_indices):
+    def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
         """Prepare the data for the benchmark."""
         pass
 
@@ -163,46 +151,9 @@ class BaseBenchmark(ABC):
     def get_name(self):
         """Get the name of the benchmark."""
         pass
-       
-
-def run_all_benchmarks(dataset: XTYDataset, benchmarks: list, dataset_split = [0.7,0.15,0.15], n_trials=10, n_tune=100, seed=0, benchmarks_dir='results/benchmarks'):
-
-    # Validate benchmarks is a list of objects inheriting from BaseBenchmark
-    for benchmark in benchmarks:
-        if not isinstance(benchmark, BaseBenchmark):
-            raise TypeError(f'benchmarks must be a list of objects inheriting from BaseBenchmark, but {benchmark} is not.')
 
 
-    # Generate train, validation, and test indices
-    gen = np.random.default_rng(seed)
-    n = len(dataset)
-    train_indices = gen.choice(n, int(n*dataset_split[0]), replace=False)
-    train_indices = [i.item() for i in train_indices]
-    val_indices = gen.choice(list(set(range(n)) - set(train_indices)), int(n*dataset_split[1]), replace=False)
-    val_indices = [i.item() for i in val_indices]
-    test_indices = list(set(range(n)) - set(train_indices) - set(val_indices))
-
-    results = {'name':[],'mean':[],'std':[]}
-
-    timestamp = datetime.now().strftime('%Y-%m-%dT%H-%M-%S')
-    benchmarks_dir = os.path.join(benchmarks_dir, timestamp)
-
-    for benchmark in benchmarks:
-        losses = benchmark.run(dataset, train_indices, val_indices, test_indices, n_trials=n_trials, n_tune=n_tune, seed=seed, benchmarks_dir=benchmarks_dir, timestamp=timestamp)
-        results['name'].append(benchmark.name)
-        results['mean'].append(np.mean(losses))
-        results['std'].append(np.std(losses))
-
-    # Create a dataframe with the results
-    df = pd.DataFrame(results)
-
-    # Save the results
-    df.to_csv(os.path.join(benchmarks_dir, 'results.csv'), index=False)
-
-    return df
-    
-
-class GAM(BaseBenchmark):
+class GAMBenchmark(BaseBenchmark):
     """GAM benchmark."""
     
     def get_name(self):
@@ -228,7 +179,7 @@ class GAM(BaseBenchmark):
         else:
             return ExplainableBoostingRegressor(**parameters,interactions=0,random_state=seed)
     
-    def prepare_data(self, dataset: XTYDataset, train_indices, val_indices, test_indices):
+    def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
         
         data_train = np.asfortranarray(dataset.get_single_matrix(train_indices))
         self.X_train = data_train[:,:-1]    
@@ -302,7 +253,7 @@ class XGBBenchmark(BaseBenchmark):
         else:
             return XGBRegressor(**parameters, random_state=seed)
     
-    def prepare_data(self, dataset: XTYDataset, train_indices, val_indices, test_indices):
+    def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
         
         data_train = np.asfortranarray(dataset.get_single_matrix(train_indices))
         self.X_train = data_train[:,:-1]    
@@ -362,14 +313,13 @@ class TTSBenchmark(BaseBenchmark):
     def get_model_for_tuning(self, trial, seed):
         """Get model for tuning."""
         config = TuningConfig(trial,n_features=self.config.n_features, n_basis=self.config.n_basis, T=self.config.T, seed=self.config.seed)
-        model = TTS(config)
-        litmodel = LitTTS(config, model)
+        litmodel = LitTTS(config)
         tuning_callback = PyTorchLightningPruningCallback(trial, monitor='val_loss')
         return (litmodel, tuning_callback)
        
     def get_final_model(self, parameters, seed):
         """Get model for testing."""
-        if parmaters is not None:
+        if parameters is not None:
             encoder = {
                 'hidden_sizes': [parameters[f'hidden_size_{i}'] for i in range(3)],
                 'activation': parameters['activation'],
@@ -391,14 +341,11 @@ class TTSBenchmark(BaseBenchmark):
         else:
             config = self.config
 
-        model = TTS(config)
-        litmodel = LitTTS(config, model)
+        litmodel = LitTTS(config)
         return litmodel
 
-    def prepare_data(self, dataset, train_indices, val_indices, test_indices):
-        X = dataset.X
-        ts = dataset.ts
-        ys = dataset.ys
+    def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
+        X, ts, ys = dataset.get_X_ts_ys()
         self.train_dataset = TTSDataset(self.config, (X[train_indices,:], [ts[i] for i in train_indices], [ys[i] for i in train_indices]))
         self.val_dataset = TTSDataset(self.config, (X[val_indices,:], [ts[i] for i in val_indices], [ys[i] for i in val_indices]))
         self.test_dataset = TTSDataset(self.config, (X[test_indices,:], [ts[i] for i in test_indices], [ys[i] for i in test_indices]))
@@ -409,10 +356,21 @@ class TTSBenchmark(BaseBenchmark):
         if tuning:
             tuning_callback = model[1]
             model = model[0]
-            log_dir = os.path.join(self.benchmarks_dir, self.name, f'seed_{model.config.seed}', 'tuning', 'logs')
+            log_dir = os.path.join(self.benchmarks_dir, self.name, 'tuning', 'logs', f'seed_{model.config.seed}')
         else:
-            log_dir =  os.path.join(self.benchmarks_dir, self.name, f'seed_{model.config.seed}', 'training', 'logs')
-        tb_logger = pl.loggers.TensorBoardLogger(save_dir=log_dir, name='tts')
+            log_dir =  os.path.join(self.benchmarks_dir, self.name, 'final', 'logs', f'seed_{model.config.seed}')
+        tb_logger = pl.loggers.TensorBoardLogger(save_dir=log_dir)
+
+        # Create folder if does not exist
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+
+        # Save config as a pickle file
+        config = model.config
+        with open(os.path.join(log_dir, 'config.pkl'), 'wb') as f:
+            pickle.dump(config, f)
+        
+
         
         # create callbacks
         best_val_checkpoint = pl.callbacks.ModelCheckpoint(

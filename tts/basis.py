@@ -144,5 +144,18 @@ class BSplineBasis():
             result += coeffs[i] * self._monomial_basis(i, degree=self.k)
         return result
 
+    def get_template_from_coeffs(self,coeffs):
+        monomial_basis_matrix = self.get_spline_with_coeffs_monomial(coeffs)
+
+
+    def get_template_from_cubic(self,coeffs):
+        """
+        Args:
+            coeffs: a vector of length 4. The first entry is the constant term, the second is the linear term, etc.
+        """
+        assert len(coeffs) == 4
+        return result
+
+
      
         

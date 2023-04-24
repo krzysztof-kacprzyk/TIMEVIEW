@@ -3,7 +3,7 @@ import optuna
 import json
 import pickle
 from tts.config import TuningConfig
-from train_eval.training import training
+from tts.training import training
 from tts.data import synthetic_tumor_data, TTSDataset
 
 
