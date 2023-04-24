@@ -50,6 +50,99 @@ def get_class_by_name(class_name):
     return globals()[class_name]
 
 
+class TumorDataset(BaseDataset):
+
+    FILE_LIST = [
+        "input celgene09.csv",
+        "input centoco06.csv",
+        "input cougar06.csv",
+        "input novacea06.csv",
+        "input pfizer08.csv",
+        "input sanfi00.csv",
+        "input sanofi79.csv",
+        "inputS83OFF.csv",
+        "inputS83ON.csv",
+    ]
+
+    def __init__(self, **args):
+        super().__init__(**args)
+        df_list = list()
+        for f in TumorDataset.FILE_LIST:
+            df = pd.read_csv(os.path.join("data",'tumor',f))
+            df["name"] = df["name"].astype(str) + f
+            df_list.append(df)
+
+        df = pd.concat(df_list)
+
+        # Filter only to date 365 (1 year)
+        df = df[df['date'] <= 365.0]
+
+        # Filter only to patients with at least 10 time steps
+        df = df.groupby('name').filter(lambda x: len(x) >= 10)
+
+        # Take the log transform of the tumor volume
+        def protected_log(x):
+            return np.log(x + 1e-6)
+
+        df['size'] = protected_log(df['size'])
+
+        # Create a new column with the first time step for each patient
+        first_time = df.groupby('name')[['date']].min()
+
+        # Merge with df to extract size at first time step
+        first_measurements = first_time.merge(df,left_on=['name','date'],right_on=['name','date'])
+        first_measurements.columns = ['name','date_first','size_first']
+
+        # Merge with the original df
+        df = df.merge(first_measurements,on='name',how='left')
+
+        df = df[['name','date_first','size_first','date','size']]
+        df.columns = ['id','t0','y0','t','y']
+
+        self.X, self.ts, self.ys = self._extract_data_from_one_dataframe(df)
+
+
+
+    def _extract_data_from_one_dataframe(self, df):
+        """
+        This function extracts the data from one dataframe
+        Args:
+              df a pandas dataframe with columns ['id','x1','x2',...,'xM','t','y'] where the first M columns are the static features and the last two columns are the time and the observation
+        """
+        # TODO: Validate data
+
+        ids = df['id'].unique()
+        X = []
+        ts = []
+        ys = []
+        for id in ids:
+            df_id = df[df['id'] == id].copy()
+            X.append(
+                df_id.iloc[0, 1:-2].values.astype(np.float32).reshape(1, -1))
+            # print(X)
+            df_id.sort_values(by='t', inplace=True)
+            ts.append(df_id['t'].values.reshape(-1))
+            ys.append(df_id['y'].values.reshape(-1))
+        X = np.concatenate(X, axis=0)
+        return X, ts, ys
+
+
+    def get_X_ts_ys(self):
+        return self.X, self.ts, self.ys
+
+    def __len__(self):
+        return len(self.X)
+    
+    def get_feature_ranges(self):
+        return {
+            't0': (1, 150),
+            'y0': (-3, 9),
+        }
+    
+    def get_feature_names(self):
+        return ['t0','y0']
+
+
 class SyntheticTumorDataset(BaseDataset):
 
     def __init__(self, **args):
