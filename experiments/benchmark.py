@@ -53,6 +53,13 @@ def create_benchmark_datasets_if_not_exist(dataset_description_path='dataset_des
         'dataset_name': 'tumor',
         'dataset_builder': 'TumorDataset',
         'dataset_dictionary': {}
+        },
+        {
+        'dataset_name': 'mimic_0.1',
+        'dataset_builder': 'MIMICDataset',
+        'dataset_dictionary': {
+            'subset': 0.1,
+            'seed': 0}
         }
     ]
 
@@ -246,6 +253,24 @@ if __name__ == "__main__":
             benchmarks['TTS'] = {'config': tts_config}
 
         run_benchmarks(dataset_name, benchmarks, **benchmark_options)
+
+
+    if 'mimic_0.1' in dataset_names:
+        dataset_name = 'mimic_0.1'
+
+        benchmarks = {}
+
+        if 'XGB' in args.baselines:
+            benchmarks['XGB'] = {}
+        if 'GAM' in args.baselines:
+            benchmarks['GAM'] = {}
+        if 'TTS' in args.baselines:
+            tts_config = Config(n_features=43, n_basis=5, T=18, seed=global_seed, dataloader_type='tensor', num_epochs=400, device='gpu')
+            benchmarks['TTS'] = {'config': tts_config}
+
+        run_benchmarks(dataset_name, benchmarks, **benchmark_options)
+
+    
 
 
 

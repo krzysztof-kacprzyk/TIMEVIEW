@@ -55,6 +55,29 @@ class BaseDataset(ABC):
             samples.append(np.concatenate((X_i_tiled, np.expand_dims(ts[i],1), np.expand_dims(ys[i],1)), axis=1))
         return np.concatenate(samples, axis=0)
 
+    def _extract_data_from_one_dataframe(self, df):
+        """
+        This function extracts the data from one dataframe
+        Args:
+              df a pandas dataframe with columns ['id','x1','x2',...,'xM','t','y'] where the first M columns are the static features and the last two columns are the time and the observation
+        """
+        # TODO: Validate data
+
+        ids = df['id'].unique()
+        X = []
+        ts = []
+        ys = []
+        for id in ids:
+            df_id = df[df['id'] == id].copy()
+            X.append(
+                df_id.iloc[0, 1:-2].values.astype(np.float32).reshape(1, -1))
+            # print(X)
+            df_id.sort_values(by='t', inplace=True)
+            ts.append(df_id['t'].values.reshape(-1))
+            ys.append(df_id['y'].values.reshape(-1))
+        X = np.concatenate(X, axis=0)
+        return X, ts, ys
+
 class XTYDataset(BaseDataset):
     def __init__(self, X, ts, ys, feature_ranges=None, feature_names=None):
         self.X = X

@@ -50,6 +50,151 @@ def get_class_by_name(class_name):
     return globals()[class_name]
 
 
+class MIMICDataset(BaseDataset):
+
+    def __init__(self, subset=0.1, seed=0):
+        super().__init__(subset=subset,seed=seed)
+        df = pd.read_csv(os.path.join("data", "mimic", "processed_sepsis3_tts.csv"))
+
+        selected_cols = [
+                'traj',
+                'o:gender', 'o:mechvent', 'o:re_admission', 'o:age',
+                'o:Weight_kg', 'o:GCS', 'o:HR', 'o:SysBP', 'o:MeanBP', 'o:DiaBP',
+                'o:RR', 'o:Temp_C', 'o:FiO2_1', 'o:Potassium', 'o:Sodium', 'o:Chloride',
+                'o:Glucose', 'o:Magnesium', 'o:Calcium', 'o:Hb', 'o:WBC_count',
+                'o:Platelets_count', 'o:PTT', 'o:PT', 'o:Arterial_pH', 'o:paO2',
+                'o:paCO2', 'o:Arterial_BE', 'o:HCO3', 'o:Arterial_lactate', 'o:SOFA',
+                'o:SIRS', 'o:Shock_Index', 'o:PaO2_FiO2', 'o:cumulated_balance',
+                'o:SpO2', 'o:BUN', 'o:Creatinine', 'o:SGOT', 'o:SGPT', 'o:Total_bili',
+                'o:INR', 'a:action',
+                'step', 'true_score'] 
+
+        df = df[selected_cols]
+
+        df.columns = ['id'] + df.columns[1:-2].tolist() + ['t','y']
+
+        X, ts, ys = self._extract_data_from_one_dataframe(df)
+
+        subset = self.args.subset
+        seed = self.args.seed
+
+        n = len(X)
+
+        gen = np.random.default_rng(seed)
+        subset_indices = gen.choice(n, int(n*subset), replace=False)
+        subset_indices = [i.item() for i in subset_indices]
+
+        X = X[subset_indices, :]
+        ts = [ts[i] for i in subset_indices]
+        ys = [ys[i] for i in subset_indices]
+
+        self.X = X
+        self.ts = ts
+        self.ys = ys
+
+    def get_X_ts_ys(self):
+        return self.X, self.ts, self.ys
+
+    def __len__(self):
+        return len(self.X)
+    
+    def get_feature_ranges(self):
+        return {
+            'o:gender': (0,1),
+            'o:mechvent': (0,1), 
+            'o:re_admission': (0,1), 
+            'o:age': (0,1),
+            'o:Weight_kg': (0,1), 
+            'o:GCS': (0,1), 
+            'o:HR': (0,1), 
+            'o:SysBP': (0,1), 
+            'o:MeanBP': (0,1), 
+            'o:DiaBP': (0,1),
+            'o:RR': (0,1), 
+            'o:Temp_C': (0,1), 
+            'o:FiO2_1': (0,1), 
+            'o:Potassium': (0,1), 
+            'o:Sodium': (0,1), 
+            'o:Chloride': (0,1),
+            'o:Glucose': (0,1), 
+            'o:Magnesium': (0,1), 
+            'o:Calcium': (0,1), 
+            'o:Hb': (0,1), 
+            'o:WBC_count': (0,1),
+            'o:Platelets_count': (0,1), 
+            'o:PTT': (0,1), 
+            'o:PT': (0,1), 
+            'o:Arterial_pH': (0,1), 
+            'o:paO2': (0,1),
+            'o:paCO2': (0,1), 
+            'o:Arterial_BE': (0,1), 
+            'o:HCO3': (0,1), 
+            'o:Arterial_lactate': (0,1), 
+            'o:SOFA': (0,1),
+            'o:SIRS': (0,1), 
+            'o:Shock_Index': (0,1), 
+            'o:PaO2_FiO2': (0,1), 
+            'o:cumulated_balance': (0,1),
+            'o:SpO2': (0,1), 
+            'o:BUN': (0,1), 
+            'o:Creatinine': (0,1), 
+            'o:SGOT': (0,1), 
+            'o:SGPT': (0,1), 
+            'o:Total_bili': (0,1),
+            'o:INR': (0,1), 
+            'a:action': (0,1),
+        }
+
+    def get_feature_names(self):
+        return [
+            'o:gender',
+            'o:mechvent', 
+            'o:re_admission', 
+            'o:age',
+            'o:Weight_kg', 
+            'o:GCS', 
+            'o:HR', 
+            'o:SysBP', 
+            'o:MeanBP', 
+            'o:DiaBP',
+            'o:RR', 
+            'o:Temp_C', 
+            'o:FiO2_1', 
+            'o:Potassium', 
+            'o:Sodium', 
+            'o:Chloride',
+            'o:Glucose', 
+            'o:Magnesium', 
+            'o:Calcium', 
+            'o:Hb', 
+            'o:WBC_count',
+            'o:Platelets_count', 
+            'o:PTT', 
+            'o:PT', 
+            'o:Arterial_pH', 
+            'o:paO2',
+            'o:paCO2', 
+            'o:Arterial_BE', 
+            'o:HCO3', 
+            'o:Arterial_lactate', 
+            'o:SOFA',
+            'o:SIRS', 
+            'o:Shock_Index', 
+            'o:PaO2_FiO2', 
+            'o:cumulated_balance',
+            'o:SpO2', 
+            'o:BUN', 
+            'o:Creatinine', 
+            'o:SGOT', 
+            'o:SGPT', 
+            'o:Total_bili',
+            'o:INR', 
+            'a:action'
+        ]
+
+
+
+
 class TumorDataset(BaseDataset):
 
     FILE_LIST = [
@@ -100,31 +245,6 @@ class TumorDataset(BaseDataset):
         df.columns = ['id','t0','y0','t','y']
 
         self.X, self.ts, self.ys = self._extract_data_from_one_dataframe(df)
-
-
-
-    def _extract_data_from_one_dataframe(self, df):
-        """
-        This function extracts the data from one dataframe
-        Args:
-              df a pandas dataframe with columns ['id','x1','x2',...,'xM','t','y'] where the first M columns are the static features and the last two columns are the time and the observation
-        """
-        # TODO: Validate data
-
-        ids = df['id'].unique()
-        X = []
-        ts = []
-        ys = []
-        for id in ids:
-            df_id = df[df['id'] == id].copy()
-            X.append(
-                df_id.iloc[0, 1:-2].values.astype(np.float32).reshape(1, -1))
-            # print(X)
-            df_id.sort_values(by='t', inplace=True)
-            ts.append(df_id['t'].values.reshape(-1))
-            ys.append(df_id['y'].values.reshape(-1))
-        X = np.concatenate(X, axis=0)
-        return X, ts, ys
 
 
     def get_X_ts_ys(self):
