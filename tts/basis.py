@@ -3,13 +3,20 @@ import numpy as np
 
 class BSplineBasis():
 
-    def __init__(self,n_basis,t_range):
+    def __init__(self,n_basis,t_range, internal_knots=None):
         self.n_basis = n_basis
         self.t_range = t_range
         self.t_min = t_range[0]
         self.t_max = t_range[1]
         self.k = 3 # degree of the spline
-        self.knots = self._calculate_knots()
+
+        if internal_knots is None:
+            self.internal_knots = self._calculate_internal_knots()
+        else:
+            assert len(internal_knots) == self.n_basis - self.k + 1
+            self.internal_knots = internal_knots
+        
+        self.knots = self._add_boundary_knots(self.internal_knots)
         self.B_monomial = self._calculate_monomial_basis()
 
     def _calculate_monomial_basis(self):
@@ -79,13 +86,16 @@ class BSplineBasis():
 
         return Bs
 
+    def _add_boundary_knots(self,internal_knots):
+        """
+        Given a list of internal knots, this function adds the boundary knots
+        """
+        return np.r_[[self.t_min]*(self.k),internal_knots,[self.t_max]*(self.k)]
 
-    def _calculate_knots(self):
+    def _calculate_internal_knots(self):
         n_internal_knots = self.n_basis - self.k + 1
         internal_knots = np.linspace(self.t_min,self.t_max,n_internal_knots)
-        self.internal_knots = internal_knots
-
-        return np.r_[[self.t_min]*(self.k),internal_knots,[self.t_max]*(self.k)]
+        return internal_knots
 
 
     def get_knots(self):
