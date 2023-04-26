@@ -406,7 +406,8 @@ class TTSBenchmark(BaseBenchmark):
                             device=self.config.device,
                             num_epochs=self.config.num_epochs,
                             dataloader_type=self.config.dataloader_type,
-                            internal_knots=self.config.internal_knots)
+                            internal_knots=self.config.internal_knots,
+                            n_basis_tunable=self.config.n_basis_tunable)
         litmodel = LitTTS(config)
         tuning_callback = PyTorchLightningPruningCallback(trial, monitor='val_loss')
         return (litmodel, tuning_callback)
@@ -425,8 +426,13 @@ class TTSBenchmark(BaseBenchmark):
                 'weight_decay': parameters['weight_decay'],
                 'optimizer': 'adam'
             }
+            if self.config.n_basis_tunable:
+                n_basis = parameters['n_basis']
+            else:
+                n_basis = self.config.n_basis
+
             config = Config(n_features=self.config.n_features,
-                            n_basis=self.config.n_basis,
+                            n_basis=n_basis,
                             T=self.config.T,
                             seed=seed,
                             encoder=encoder,
@@ -444,21 +450,35 @@ class TTSBenchmark(BaseBenchmark):
     def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
         X, ts, ys = dataset.get_X_ts_ys()
 
-        if self.config.internal_knots is None:
-            print('Calculating internal knots')
-            ts_train = [ts[i] for i in train_indices]
-            ys_train = [ys[i] for i in train_indices]
+        if self.config.n_basis_tunable:
+            # That means that we cannot precompute the internal knots and instantiate the datasets
+            # Instead we will have to do it in the train function
+            self.X_train = X[train_indices,:]
+            self.ts_train = [ts[i] for i in train_indices]
+            self.ys_train = [ys[i] for i in train_indices]
+            self.X_val = X[val_indices,:]
+            self.ts_val = [ts[i] for i in val_indices]
+            self.ys_val = [ys[i] for i in val_indices]
+            self.X_test = X[test_indices,:]
+            self.ts_test = [ts[i] for i in test_indices]
+            self.ys_test = [ys[i] for i in test_indices]
+            return
+        else: 
+            if self.config.internal_knots is None:
+                # We need to find the internal knots
+                ts_train = [ts[i] for i in train_indices]
+                ys_train = [ys[i] for i in train_indices]
 
-            n_internal_knots = self.config.n_basis - 2
+                n_internal_knots = self.config.n_basis - 2
 
-            internal_knots = calculate_knot_placement(ts_train, ys_train, n_internal_knots, T=self.config.T, seed=self.config.seed)
-            print(f'Found internal knots: {internal_knots}')
+                internal_knots = calculate_knot_placement(ts_train, ys_train, n_internal_knots, T=self.config.T, seed=self.config.seed)
+                print(f'Found internal knots: {internal_knots}')
 
-            self.config.internal_knots = internal_knots
+                self.config.internal_knots = internal_knots
 
-        self.train_dataset = TTSDataset(self.config, (X[train_indices,:], [ts[i] for i in train_indices], [ys[i] for i in train_indices]))
-        self.val_dataset = TTSDataset(self.config, (X[val_indices,:], [ts[i] for i in val_indices], [ys[i] for i in val_indices]))
-        self.test_dataset = TTSDataset(self.config, (X[test_indices,:], [ts[i] for i in test_indices], [ys[i] for i in test_indices]))
+            self.train_dataset = TTSDataset(self.config, (X[train_indices,:], [ts[i] for i in train_indices], [ys[i] for i in train_indices]))
+            self.val_dataset = TTSDataset(self.config, (X[val_indices,:], [ts[i] for i in val_indices], [ys[i] for i in val_indices]))
+            self.test_dataset = TTSDataset(self.config, (X[test_indices,:], [ts[i] for i in test_indices], [ys[i] for i in test_indices]))
         
 
     def train(self, model, tuning=False):
@@ -469,6 +489,26 @@ class TTSBenchmark(BaseBenchmark):
             log_dir = os.path.join(self.benchmarks_dir, self.name, 'tuning', 'logs', f'seed_{model.config.seed}')
         else:
             log_dir =  os.path.join(self.benchmarks_dir, self.name, 'final', 'logs', f'seed_{model.config.seed}')
+
+        if self.config.n_basis_tunable:
+            # We need to create the datasets here becuase we could not do it in prepare_data
+            
+            # We need to find the internal knots
+            n_internal_knots = model.config.n_basis - 2
+            internal_knots = calculate_knot_placement(self.ts_train, self.ys_train, n_internal_knots, T=model.config.T, seed=self.config.seed)
+            print(f'Found internal knots: {internal_knots}')
+
+            model.config.internal_knots = internal_knots
+
+            train_dataset = TTSDataset(model.config, (self.X_train, self.ts_train, self.ys_train))
+            val_dataset = TTSDataset(model.config, (self.X_val, self.ts_val, self.ys_val))
+            test_dataset = TTSDataset(model.config, (self.X_test, self.ts_test, self.ys_test))
+        else:
+            train_dataset = self.train_dataset
+            val_dataset = self.val_dataset
+            test_dataset = self.test_dataset
+
+        
         tb_logger = pl.loggers.TensorBoardLogger(save_dir=log_dir)
 
         # Create folder if does not exist
@@ -519,9 +559,9 @@ class TTSBenchmark(BaseBenchmark):
 
         trainer = pl.Trainer(**trainer_dict)
 
-        train_dataloader = create_dataloader(model.config, self.train_dataset, None, shuffle=True)
-        val_dataloader = create_dataloader(model.config, self.val_dataset, None, shuffle=False)
-        test_dataloader = create_dataloader(model.config, self.test_dataset, None, shuffle=False)
+        train_dataloader = create_dataloader(model.config, train_dataset, None, shuffle=True)
+        val_dataloader = create_dataloader(model.config, val_dataset, None, shuffle=False)
+        test_dataloader = create_dataloader(model.config, test_dataset, None, shuffle=False)
     
 
         trainer.fit(

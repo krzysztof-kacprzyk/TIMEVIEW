@@ -34,7 +34,8 @@ class Config():
                  dataloader_type='iterative',
                  device='cpu',
                  num_epochs=200,
-                 internal_knots=None):
+                 internal_knots=None,
+                 n_basis_tunable=False):
 
         if not isinstance(n_features, int):
             raise ValueError("n_features must be an integer > 0")
@@ -82,6 +83,7 @@ class Config():
         self.device = device
         self.num_epochs = num_epochs
         self.internal_knots = internal_knots
+        self.n_basis_tunable = n_basis_tunable
 
 
 
@@ -97,7 +99,8 @@ class TuningConfig(Config):
         dataloader_type='iterative',
         device='cpu',
         num_epochs=200,
-        internal_knots=None
+        internal_knots=None,
+        n_basis_tunable=False
     ):
 
         # define hyperparameter search space
@@ -114,6 +117,9 @@ class TuningConfig(Config):
         batch_size = trial.suggest_categorical('batch_size', [64, 128])
         weight_decay = trial.suggest_float(
             'weight_decay', 1e-6, 1e-1, log=True)
+        
+        if n_basis_tunable:
+            n_basis = trial.suggest_int('n_basis', 5, 20)
 
         encoder = {
             'hidden_sizes': hidden_sizes,
