@@ -50,6 +50,153 @@ def get_class_by_name(class_name):
     return globals()[class_name]
 
 
+class TacrolimusDataset(BaseDataset):
+
+    def __init__(self, granularity, normalize=False, max_t=25):
+        super().__init__(granularity=granularity, normalize=normalize)
+        if granularity == 'visit':
+
+            df = pd.read_csv(os.path.join("data", "tacrolimus", "tac_pccp_mr4_250423.csv"))
+            dosage_rows = df[df['DOSE'] != 0]
+            assert dosage_rows['visit_id'].is_unique
+            df.drop(columns=['DOSE', 'EVID','II', 'AGE'], inplace=True) # we drop age because many missing values. the other columns are not needed
+            df.drop(index=dosage_rows.index, inplace=True) # drop dosage rows
+            # Merge df with dosage rows on visit_id
+            df = df.merge(dosage_rows[['visit_id', 'DOSE']], on='visit_id', how='left') # add dosage as a feature
+            df.loc[df['TIME'] >= 168, 'TIME'] -= 168 # subtract 168 from time to get time since last dosage
+            missing_24h = df[(df['TIME'] == 0) & (df['DV'] == 0)].index
+            df.drop(index=missing_24h, inplace=True) # drop rows where DV is 0 and time is 0 - they correspond to missing 24h measurements
+
+            dv_0 = df[df['TIME'] == 0][['visit_id', 'DV']]
+            assert dv_0['visit_id'].is_unique
+            df = df.merge(dv_0, on='visit_id', how='left', suffixes=('', '_0')) # add DV_0 as a feature
+
+            more_than_t = df[df['TIME'] > max_t].index
+            df.drop(index=more_than_t, inplace=True) # drop rows where time is greater than max_t
+
+            df.dropna(inplace=True) # drop rows with missing values
+
+            df = df[['visit_id'] + self.get_feature_names() + ['TIME', 'DV']]
+            df.columns = ['id'] + self.get_feature_names() + ['t', 'y']
+
+            X, ts, ys = self._extract_data_from_one_dataframe(df)
+
+            if normalize:
+                # Make each column of X between 0 and 1
+                X = (X - X.min(axis=0)) / (X.max(axis=0) - X.min(axis=0))
+            
+            self.X, self.ts, self.ys = X, ts, ys
+        else:
+            raise NotImplementedError("Only visit granularity is implemented for this dataset.")
+        
+
+    def get_X_ts_ys(self):
+        return self.X, self.ts, self.ys
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def get_feature_names(self):
+        return ['DOSE', 'DV_0', 'SEXE', 'POIDS', 'HT', 'HB', 'CREAT', 'CYP', 'FORMULATION']
+    
+    def get_feature_ranges(self):
+        if self.args.normalize:
+            return {
+                'DOSE': (0, 1),
+                'DV_0': (0, 1),
+                'SEXE': (0, 1),
+                'POIDS': (0, 1),
+                'HT': (0, 1),
+                'HB': (0, 1),
+                'CREAT': (0, 1),
+                'CYP': (0, 1),
+                'FORMULATION': (0, 1)
+            }
+        else:
+            return {
+                'DOSE': (0, 10),
+                'DV_0': (0, 20),
+                'SEXE': (0, 1),
+                'POIDS': (45, 110),
+                'HT': (20, 47),
+                'HB': (6, 16),
+                'CREAT': (60, 830),
+                'CYP': (0, 1),
+                'FORMULATION': (0, 1)
+            }
+
+
+
+
+
+class WindDataset(BaseDataset):
+
+    def __init__(self, company, granularity='daily'):
+        super().__init__(company=company, granularity=granularity)
+
+        files = {
+            "50Hertz": "50Hertz.csv",
+            "Amprion": "Amprion.csv",
+            "TenneTTSO": "TenneTTSO.csv",
+            "TransnetBW": "TransnetBW.csv"
+        }
+
+        def load_company(name):
+            file_path = os.path.join("data", "wind_data", files[name])
+            df = pd.read_csv(file_path,index_col=0,parse_dates=True,dayfirst=True)
+
+            df = df.loc['2019-09-01':'2020-08-31',:].copy()
+            df['id'] = list(range(len(df)))
+            df['day_number'] = list(range(len(df)))
+            df['month'] = df.index.month
+            df = df.melt(id_vars=['id','day_number','month'],var_name='time', value_name='y')
+            df['t'] = pd.to_timedelta(df['time']).dt.total_seconds() / 3600
+            df.drop(columns=['time'],inplace=True)
+
+            # Standardize the data between 0 and 1
+            # df['y'] = (df['y'] - df['y'].min()) / (df['y'].max() - df['y'].min())
+            # Normalize the data so that the mean is 0 and the standard deviation is 1
+            df['y'] = (df['y'] - df['y'].mean()) / df['y'].std()
+            df['day_number'] = df['day_number'] / 365
+
+            return df
+
+
+        if company == 'all':
+            df = pd.concat([load_company(name) for name in files.keys()])
+        else:
+            df = load_company(company)
+
+        if self.args.granularity == 'daily':
+            df = df[['id','day_number','t','y']]
+        elif self.args.granularity == 'monthly':
+            df = df[['id','month','t','y']]
+
+        X, ts, ys = self._extract_data_from_one_dataframe(df)
+        self.X, self.ts, self.ys = X, ts, ys
+
+    def get_X_ts_ys(self):
+        return self.X, self.ts, self.ys
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def get_feature_names(self):
+        if self.args.granularity == 'daily':
+            return ['day_number']
+        elif self.args.granularity == 'monthly':
+            return ['month']
+
+    def get_feature_ranges(self):
+        if self.args.granularity == 'daily':
+            return {
+                'day_number': (0, 1)
+            }
+        elif self.args.granularity == 'monthly':
+            return {
+                'month': (1, 12)
+            }
+
 class MIMICDataset(BaseDataset):
 
     def __init__(self, subset=0.1, seed=0):
