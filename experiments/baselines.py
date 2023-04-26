@@ -159,6 +159,65 @@ class BaseBenchmark(ABC):
         pass
 
 
+class MeanBenchmark(BaseBenchmark):
+    """Mean benchmark."""
+    
+    def get_name(self):
+        return 'Mean'
+    
+    def get_model_for_tuning(self, trial, seed):
+        """Get model for tuning."""
+        return None
+    
+    def get_final_model(self, hyperparameters, seed):
+        """Get the model."""
+        return None
+
+    def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
+        """Prepare the data for the benchmark."""
+        data_train = dataset.get_single_matrix(train_indices)
+        self.X_train = data_train[:,:-1]    
+        self.y_train = data_train[:,-1]
+        
+        data_val = dataset.get_single_matrix(val_indices)
+        self.X_val = data_val[:,:-1]
+        self.y_val = data_val[:,-1]
+
+        self.test_samples = []
+        for i in test_indices:
+            X = dataset.get_single_matrix([i])[:,:-1]
+            y = dataset.get_single_matrix([i])[:,-1]
+            self.test_samples.append((X,y))
+    
+    def train(self, model, tuning=False):
+        """
+        Train the benchmark. Returns a dictionary with train, validation, and test loss
+        Returns:
+            dict: Dictionary with train, validation, and test loss {'train_loss': float, 'val_loss': float, 'test_loss': float}
+        """
+        if not tuning:
+            X_train = np.concatenate([self.X_train, self.X_val], axis=0)
+            y_train = np.concatenate([self.y_train, self.y_val], axis=0)
+        else:
+            X_train = self.X_train
+            y_train = self.y_train
+
+        y_mean = np.mean(y_train)
+
+        train_loss = mean_squared_error(y_train, y_mean * np.ones_like(y_train))
+        val_loss = mean_squared_error(self.y_val, y_mean * np.ones_like(self.y_val))
+        
+        test_loss = 0
+        if not tuning:
+            for sample in self.test_samples:
+                X, y = sample
+                y_pred = y_mean * np.ones_like(y)
+                err = mean_squared_error(y, y_pred)
+                test_loss += err
+            test_loss /= len(self.test_samples)
+
+        return {'train_loss': train_loss, 'val_loss': val_loss, 'test_loss': test_loss}
+
 class GAMBenchmark(BaseBenchmark):
     """GAM benchmark."""
     
@@ -217,6 +276,15 @@ class GAMBenchmark(BaseBenchmark):
 
 
         model.fit(X_train, y_train)
+
+        # Save the model to a pickle file
+        if tuning:
+            log_dir = os.path.join(self.benchmarks_dir, self.name, 'tuning', 'logs', f'seed_{model.random_state}')
+        else:
+            log_dir =  os.path.join(self.benchmarks_dir, self.name, 'final', 'logs', f'seed_{model.random_state}')
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, 'model.pkl'), 'wb') as f:
+            pickle.dump(model, f)
 
         train_loss = mean_squared_error(y_train, model.predict(X_train))
         val_loss = mean_squared_error(self.y_val, model.predict(self.X_val))
@@ -291,6 +359,16 @@ class XGBBenchmark(BaseBenchmark):
 
 
         model.fit(X_train, y_train)
+
+        # Save the model to a pickle file
+        if tuning:
+            log_dir = os.path.join(self.benchmarks_dir, self.name, 'tuning', 'logs', f'seed_{model.random_state}')
+        else:
+            log_dir =  os.path.join(self.benchmarks_dir, self.name, 'final', 'logs', f'seed_{model.random_state}')
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, 'model.pkl'), 'wb') as f:
+            pickle.dump(model, f)
+
 
         train_loss = mean_squared_error(y_train, model.predict(X_train))
         val_loss = mean_squared_error(self.y_val, model.predict(self.X_val))
