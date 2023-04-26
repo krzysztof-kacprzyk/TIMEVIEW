@@ -81,7 +81,7 @@ class TTS(torch.nn.Module):
         """
         device = self.bias.device
         x = torch.unsqueeze(torch.from_numpy(x),0).float().to(device)
-        bspline = BSplineBasis(self.config.n_basis, (0,self.config.T))
+        bspline = BSplineBasis(self.config.n_basis, (0,self.config.T), internal_knots=self.config.internal_knots)
         Phi = torch.from_numpy(bspline.get_matrix(t)).float().to(device)
         self.encoder.eval()
         with torch.no_grad():
@@ -98,7 +98,7 @@ class TTS(torch.nn.Module):
         """
         device = self.bias.device
         X = torch.from_numpy(X).float().to(device)
-        bspline = BSplineBasis(self.config.n_basis, (0,self.config.T))
+        bspline = BSplineBasis(self.config.n_basis, (0,self.config.T), internal_knots=self.config.internal_knots)
         Phi = torch.from_numpy(bspline.get_matrix(t)).float().to(device) # shape (N,B)
         self.encoder.eval()
         with torch.no_grad():

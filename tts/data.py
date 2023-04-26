@@ -261,7 +261,7 @@ class TTSDataset(torch.utils.data.Dataset):
             self.ys = [torch.from_numpy(y).float() for y in self.ys]
 
     def _compute_matrices(self):
-        bspline = BSplineBasis(self.config.n_basis, (0, self.T))
+        bspline = BSplineBasis(self.config.n_basis, (0, self.T), internal_knots=self.config.internal_knots)
         Phis = list(bspline.get_all_matrices(self.ts))
         return Phis
 

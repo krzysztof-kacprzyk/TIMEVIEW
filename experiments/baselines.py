@@ -19,6 +19,7 @@ from tts.data import TTSDataset, create_dataloader, BaseDataset
 from tts.config import TuningConfig, Config
 from tts.model import TTS
 from tts.lit_module import LitTTS
+from tts.knot_selection import calculate_knot_placement
 import pytorch_lightning as pl
 import torch
 
@@ -404,7 +405,8 @@ class TTSBenchmark(BaseBenchmark):
                             seed=self.config.seed,
                             device=self.config.device,
                             num_epochs=self.config.num_epochs,
-                            dataloader_type=self.config.dataloader_type)
+                            dataloader_type=self.config.dataloader_type,
+                            internal_knots=self.config.internal_knots)
         litmodel = LitTTS(config)
         tuning_callback = PyTorchLightningPruningCallback(trial, monitor='val_loss')
         return (litmodel, tuning_callback)
@@ -431,7 +433,8 @@ class TTSBenchmark(BaseBenchmark):
                             training=training,
                             dataloader_type=self.config.dataloader_type,
                             device=self.config.device,
-                            num_epochs=self.config.num_epochs)
+                            num_epochs=self.config.num_epochs,
+                            internal_knots=self.config.internal_knots)
         else:
             config = self.config
 
@@ -440,6 +443,19 @@ class TTSBenchmark(BaseBenchmark):
 
     def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
         X, ts, ys = dataset.get_X_ts_ys()
+
+        if self.config.internal_knots is None:
+            print('Calculating internal knots')
+            ts_train = [ts[i] for i in train_indices]
+            ys_train = [ys[i] for i in train_indices]
+
+            n_internal_knots = self.config.n_basis - 2
+
+            internal_knots = calculate_knot_placement(ts_train, ys_train, n_internal_knots, T=self.config.T, seed=self.config.seed)
+            print(f'Found internal knots: {internal_knots}')
+
+            self.config.internal_knots = internal_knots
+
         self.train_dataset = TTSDataset(self.config, (X[train_indices,:], [ts[i] for i in train_indices], [ys[i] for i in train_indices]))
         self.val_dataset = TTSDataset(self.config, (X[val_indices,:], [ts[i] for i in val_indices], [ys[i] for i in val_indices]))
         self.test_dataset = TTSDataset(self.config, (X[test_indices,:], [ts[i] for i in test_indices], [ys[i] for i in test_indices]))

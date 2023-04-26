@@ -33,7 +33,8 @@ class Config():
                  dataset_split={'train': 0.8, 'val': 0.1, 'test': 0.1},
                  dataloader_type='iterative',
                  device='cpu',
-                 num_epochs=200):
+                 num_epochs=200,
+                 internal_knots=None):
 
         if not isinstance(n_features, int):
             raise ValueError("n_features must be an integer > 0")
@@ -80,6 +81,7 @@ class Config():
         self.dataloader_type = dataloader_type
         self.device = device
         self.num_epochs = num_epochs
+        self.internal_knots = internal_knots
 
 
 
@@ -94,7 +96,8 @@ class TuningConfig(Config):
         dataset_split={'train': 0.8, 'val': 0.1, 'test': 0.1},
         dataloader_type='iterative',
         device='cpu',
-        num_epochs=200
+        num_epochs=200,
+        internal_knots=None
     ):
 
         # define hyperparameter search space
@@ -169,4 +172,5 @@ class TuningConfig(Config):
         self.dataloader_type = dataloader_type
         self.device = device
         self.num_epochs = num_epochs
+        self.internal_knots = internal_knots
 
