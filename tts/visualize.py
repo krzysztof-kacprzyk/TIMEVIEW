@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 from ipywidgets import interact, FloatSlider
 import numpy as np
 
-def simple_interactive_plot(f, time_horizon, trajectory_range, feature_ranges, n_points=1000):
+def simple_interactive_plot(f, time_horizon, trajectory_range, feature_ranges, n_points=1000, figsize=(8, 3)):
     """
     f: function of time t and features x that returns a trajectory y, signature f(t, **x)
     time_horizon: the time horizon of the trajectory
@@ -13,7 +13,7 @@ def simple_interactive_plot(f, time_horizon, trajectory_range, feature_ranges, n
     t = np.linspace(0, time_horizon, n_points)
 
     # Set up the figure and axes
-    fig = plt.figure(figsize=(8, 3))
+    fig = plt.figure(figsize=figsize)
     line, = plt.plot([], [], lw=2) # initialize the line with empty data
 
     plt.title("y = tts(t)")
@@ -37,7 +37,7 @@ def simple_interactive_plot(f, time_horizon, trajectory_range, feature_ranges, n
     interact(plot_f, **sliders);
 
 
-def simple_tts_plot(litmodel, dataset, trajectory_range, n_points=100):
+def simple_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(8, 3)):
     """
     litmodel: a LitModel object
     dataset: a BaseDataset object
@@ -53,7 +53,7 @@ def simple_tts_plot(litmodel, dataset, trajectory_range, n_points=100):
         features = np.array([x[feature_name] for feature_name in feature_names])
         return litmodel.model.forecast_trajectory(features,t)
     
-    simple_interactive_plot(trajectory, time_horizon, trajectory_range, feature_ranges, n_points)
+    simple_interactive_plot(trajectory, time_horizon, trajectory_range, feature_ranges, n_points, figsize=figsize)
 
 
 def advanced_tts_plot(litmodel, dataset, trajectory_range, n_points=100):
