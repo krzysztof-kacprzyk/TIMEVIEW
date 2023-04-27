@@ -156,16 +156,237 @@ class BSplineBasis():
 
     def get_template_from_coeffs(self,coeffs):
         monomial_basis_matrix = self.get_spline_with_coeffs_monomial(coeffs)
+        full_template = []
+        all_transition_points = []
+        for i in range(len(self.internal_knots)-1):
+            template, transition_points = self.get_template_from_cubic(monomial_basis_matrix[:,i],(self.internal_knots[i],self.internal_knots[i+1]))
+            full_template += template
+            all_transition_points += transition_points[:-1]
+        all_transition_points.append(self.t_max)
+
+        short_template = []
+        short_transition_points = []
+
+        short_template.append(full_template[0])
+        short_transition_points.append(all_transition_points[0])
+
+        for state, point in zip(full_template[1:], all_transition_points[1:-1]):
+            if state != short_template[-1]:
+                short_template.append(state)
+                short_transition_points.append(point)
+        short_transition_points.append(all_transition_points[-1])
+
+        return short_template, short_transition_points
+            
+    STATES = {
+        'line_increasing': 0,
+        'line_decreasing': 1,
+        'line_constant': 2,
+        'convex_increasing': 3,
+        'concave_increasing': 4,
+        'convex_decreasing': 5,
+        'concave_decreasing': 6,
+    }
 
 
-    def get_template_from_cubic(self,coeffs):
+    def get_template_from_cubic(self,coeffs, interval):
         """
         Args:
             coeffs: a vector of length 4. The first entry is the constant term, the second is the linear term, etc.
+            interval: a tuple (t_min,t_max) specifying the interval on which the cubic is defined
         """
         assert len(coeffs) == 4
-        return result
 
+        t_0 = interval[0]
+        t_1 = interval[1]
 
-     
-        
+        if coeffs[3] == 0 and coeffs[2] == 0:
+            # This is a straight line
+            if coeffs[1] > 0:
+                return [self.STATES['line_increasing']], [t_0,t_1]
+            elif coeffs[1] < 0:
+                return [self.STATES['line_decreasing']], [t_0,t_1]
+            else:
+                return [self.STATES['line_constant']], [t_0,t_1]
+        elif coeffs[3] == 0:
+            # This is a parabola
+            
+            # Calculate the vertex
+            t_vertex = -coeffs[1]/(2*coeffs[2])
+
+            if t_vertex <= t_0 or t_vertex >= t_1:
+                # The vertex is not in the interval
+
+                if coeffs[2] > 0:
+                    # The parabola is concave up (convex)
+                    if t_vertex <= t_0:
+                        # The parabola is increasing
+                        return [self.STATES['convex_increasing']], [t_0,t_1]
+                    elif t_vertex >= t_1:
+                        # The parabola is decreasing
+                        return [self.STATES['convex_decreasing']], [t_0,t_1]
+                
+                elif coeffs[2] < 0:
+                    # The parabola is concave down (concave)
+                    if t_vertex <= t_0:
+                        # The parabola is decreasing
+                        return [self.STATES['concave_decreasing']], [t_0,t_1]
+                    elif t_vertex >= t_1:
+                        # The parabola is increasing
+                        return [self.STATES['concave_increasing']], [t_0,t_1]
+            
+            else:
+                # The vertex is in the interval
+                if coeffs[2] > 0:
+                    # The parabola is concave up (convex)
+                    return [self.STATES['convex_decreasing'], self.STATES['convex_increasing']], [t_0,t_vertex,t_1]
+                elif coeffs[2] < 0:
+                    # The parabola is concave down (concave)
+                    return [self.STATES['concave_increasing'], self.STATES['concave_decreasing']], [t_0,t_vertex,t_1]
+        else:
+            # This is a cubic
+
+             # Calculate the coefficients of the first derivative
+            coeffs_dt = np.zeros(4)
+            for i in range(1,4):
+                coeffs_dt[i-1] = i * coeffs[i]
+            
+            # Calculate the coefficients of the second derivative
+            coeffs_dt2 = np.zeros(4)
+            for i in range(1,4):
+                coeffs_dt2[i-1] = i * coeffs_dt[i]
+
+            # Find zeroes of the first derivative, it is a quadratic with a non-zero leading coefficient (because it's a cubic)
+            dt_zeros = []
+            Delta = coeffs_dt[1]**2 - 4 * coeffs_dt[2] * coeffs_dt[0]
+            if Delta < 0:
+                pass
+            elif Delta == 0:
+                dt_zeros.append(-coeffs_dt[1]/(2*coeffs_dt[2]))
+            else:
+                dt_zeros.append((-coeffs_dt[1] + np.sqrt(Delta))/(2*coeffs_dt[2]))
+                dt_zeros.append((-coeffs_dt[1] - np.sqrt(Delta))/(2*coeffs_dt[2]))
+
+            # Find zero of the second derivative, it is a linear function with a non-zero slope (because it's a cubic)
+            dt2_zero = - coeffs_dt2[0]/coeffs_dt2[1] # this is the inlfection point
+
+            if dt2_zero <= t_0 or dt2_zero >= t_1:
+                # The inflection point is not in the interval so we it has a constant convexity
+
+                zeros_in_interval = [z for z in dt_zeros if (t_0 < z) and (z < t_1)]
+
+                if (dt2_zero <= t_0 and coeffs_dt2[1] > 0) or (dt2_zero >= t_1 and coeffs_dt2[1] < 0):
+                    # The cubic is concave up (convex)
+                    # Now we need to check zeros of the first derivative
+
+                    if len(zeros_in_interval) == 0:
+                        # The cubic does not change direction
+                        # Evaluate the first derivative at the center of the interval
+                        t_center = (t_0 + t_1)/2
+                        dt_center = coeffs_dt[0] + coeffs_dt[1] * t_center + coeffs_dt[2] * t_center**2
+                        if dt_center > 0:
+                            # The cubic is increasing
+                            return [self.STATES['convex_increasing']], [t_0,t_1]
+                        elif dt_center < 0:
+                            # The cubic is decreasing
+                            return [self.STATES['convex_decreasing']], [t_0,t_1]
+                        else:
+                            # Cannot happen because there are no zeros in the interval
+                            pass
+                    elif len(zeros_in_interval) == 1:
+                        # The cubic changes direction once
+                        return [self.STATES['convex_decreasing'], self.STATES['convex_increasing']], [t_0,zeros_in_interval[0],t_1]
+                    else:
+                        # Cannot happen because there is not inflection point in the interval
+                        pass
+
+                elif (dt2_zero <= t_0 and coeffs_dt2[1] < 0) or (dt2_zero >= t_1 and coeffs_dt2[1] > 0):
+                    # The cubic is concave down (concave)
+                    # Now we need to check zeros of the first derivative
+
+                    if len(zeros_in_interval) == 0:
+                        # The cubic does not change direction
+                        # Evaluate the first derivative at the center of the interval
+                        t_center = (t_0 + t_1)/2
+                        dt_center = coeffs_dt[0] + coeffs_dt[1] * t_center + coeffs_dt[2] * t_center**2
+                        if dt_center < 0:
+                            # The cubic is decreasing
+                            return [self.STATES['concave_decreasing']], [t_0,t_1]
+                        elif dt_center > 0:
+                            # The cubic is increasing
+                            return [self.STATES['concave_increasing']], [t_0,t_1]
+                        else:
+                            # Cannot happen because there are no zeros in the interval
+                            pass
+                    elif len(zeros_in_interval) == 1:
+                        # The cubic changes direction once
+                        return [self.STATES['concave_increasing'], self.STATES['concave_decreasing']], [t_0,zeros_in_interval[0],t_1]
+                    else:
+                        # Cannot happen because there is not inflection point in the interval
+                        pass
+                
+                else:
+                    # Cannot happen
+                    pass
+
+            else:
+                # The inflection point is in the interval so it has a non-constant convexity
+                zeros_in_interval = sorted([z for z in dt_zeros if (t_0 < z) and (z < t_1)])
+
+                if len(zeros_in_interval) == 0:
+
+                    # Calculate the value of the first derivative at the inflection point
+                    dt_inflection = coeffs_dt[0] + coeffs_dt[1] * dt2_zero + coeffs_dt[2] * dt2_zero**2
+
+                    if coeffs_dt2[1] > 0:
+                        if dt_inflection < 0:
+                            return [self.STATES['concave_decreasing'], self.STATES['convex_decreasing']], [t_0,dt2_zero,t_1]
+                        elif dt_inflection > 0:
+                            return [self.STATES['concave_increasing'], self.STATES['convex_increasing']], [t_0,dt2_zero,t_1]
+                        else:
+                            # The first derivative is tangent to the x-axis at the inflection point
+                            if coeffs_dt[2] > 0:
+                                return [self.STATES['concave_increasing'], self.STATES['convex_increasing']], [t_0,dt2_zero,t_1]
+                            elif coeffs_dt[2] < 0:
+                                return [self.STATES['concave_decreasing'], self.STATES['convex_decreasing']], [t_0,dt2_zero,t_1]
+                    elif coeffs_dt2[1] < 0:
+                        if dt_inflection < 0:
+                            return [self.STATES['convex_decreasing'], self.STATES['concave_decreasing']], [t_0,dt2_zero,t_1]
+                        elif dt_inflection > 0:
+                            return [self.STATES['convex_increasing'], self.STATES['concave_increasing']], [t_0,dt2_zero,t_1]
+                        else:
+                            # The first derivative is tangent to the x-axis at the inflection point
+                            if coeffs_dt[2] > 0:
+                                return [self.STATES['convex_increasing'], self.STATES['concave_increasing']], [t_0,dt2_zero,t_1]
+                            elif coeffs_dt[2] < 0:
+                                return [self.STATES['convex_decreasing'], self.STATES['concave_decreasing']], [t_0,dt2_zero,t_1]
+                        
+                elif len(zeros_in_interval) == 1:
+
+                    if zeros_in_interval[0] < dt2_zero:
+
+                        if coeffs_dt2[1] > 0:
+                            return [self.STATES['concave_increasing'], self.STATES['concave_decreasing'], self.STATES['convex_decreasing']], [t_0,zeros_in_interval[0],dt2_zero,t_1]
+                        elif coeffs_dt2[1] < 0:
+                            return [self.STATES['convex_decreasing'], self.STATES['convex_increasing'], self.STATES['concave_increasing']], [t_0,zeros_in_interval[0],dt2_zero,t_1]
+
+                    elif zeros_in_interval[0] > dt2_zero:
+
+                        if coeffs_dt2[1] > 0:
+                            return [self.STATES['concave_decreasing'], self.STATES['convex_decreasing'], self.STATES['convex_increasing']], [t_0,dt2_zero,zeros_in_interval[0],t_1]
+                        elif coeffs_dt2[1] < 0:
+                            return [self.STATES['convex_increasing'], self.STATES['concave_increasing'], self.STATES['concave_decreasing']], [t_0,dt2_zero,zeros_in_interval[0],t_1]
+
+                    elif zeros_in_interval[0] == dt2_zero:
+                            
+                            if coeffs_dt2[1] > 0:
+                                return [self.STATES['concave_increasing'], self.STATES['convex_increasing']], [t_0,zeros_in_interval[0],t_1]
+                            elif coeffs_dt2[1] < 0:
+                                return [self.STATES['convex_decreasing'], self.STATES['concave_decreasing']], [t_0,zeros_in_interval[0],t_1]
+                
+                elif len(zeros_in_interval) == 2:
+
+                    if coeffs_dt2[1] > 0:
+                        return [self.STATES['concave_increasing'], self.STATES['concave_decreasing'], self.STATES['convex_decreasing'], self.STATES['convex_increasing']], [t_0,zeros_in_interval[0],dt2_zero,zeros_in_interval[1],t_1]
+                    elif coeffs_dt2[1] < 0:
+                        return [self.STATES['convex_decreasing'], self.STATES['convex_increasing'], self.STATES['concave_increasing'], self.STATES['concave_decreasing']], [t_0,zeros_in_interval[0],dt2_zero,zeros_in_interval[1],t_1]

@@ -1,6 +1,7 @@
 import pytest
 from tts.basis import BSplineBasis
 import numpy as np
+import matplotlib.pyplot as plt
 
 @pytest.fixture
 def bspline_fixture():
@@ -45,3 +46,51 @@ def test_spline_with_coeffs_monomial(bspline_fixture):
         t = np.linspace(internal_knots[j], internal_knots[j+1], 10)
         result = in_monomial[0,j] + t * in_monomial[1,j] + t**2 * in_monomial[2,j] + t**3 * in_monomial[3,j]
         assert np.allclose(spline(t), result, atol=1e-10)
+
+@pytest.mark.parametrize("cubic, interval, template, points", [
+    # Linear
+    ([0,1,0,0], [-1,1], [0], [-1,1]),
+    ([0,-1,0,0], [-1,1], [1], [-1,1]),
+    ([0,0,0,0], [-1,1], [2], [-1,1]),
+    # Convex parabola
+    ([0,0,1,0], [-1,1], [5,3], [-1,0,1]),
+    ([0,0,1,0], [0,1], [3], [0,1]),
+    ([0,0,1,0], [0.5,1], [3], [0.5,1]),
+    ([0,0,1,0], [-1,0], [5], [-1,0]),
+    ([0,0,1,0], [-1,-0.5], [5], [-1,-0.5]),
+    # Concave parabola
+    ([0,0,-1,0], [-1,1], [4,6], [-1,0,1]),
+    ([0,0,-1,0], [0,1], [6], [0,1]),
+    ([0,0,-1,0], [0.5,1], [6], [0.5,1]),
+    ([0,0,-1,0], [-1,0], [4], [-1,0]),
+    ([0,0,-1,0], [-1,-0.5], [4], [-1,-0.5]),
+    # Cubic
+    ([0,0,0,1], [-1,1], [4,3], [-1,0,1]),
+    ([0,0,0,1], [0,1], [3], [0,1]),
+    ([0,0,0,1], [-1,0], [4], [-1,0]),
+    ([0,0,0,-1], [-1,1], [5,6], [-1,0,1]),
+
+    ([0,-3,0,1], [-2,2], [4,6,5,3], [-2,-1,0,1,2]),
+    ([0,-3,0,1], [-2,1], [4,6,5], [-2,-1,0,1]),
+    ([0,-3,0,1], [-2,0], [4,6], [-2,-1,0]),
+    ([0,-3,0,1], [-2,-1], [4], [-2,-1]),
+    ([0,-3,0,1], [-1,2], [6,5,3], [-1,0,1,2]),
+    ([0,-3,0,1], [-1,1], [6,5], [-1,0,1]),
+    ([0,-3,0,1], [-1,0], [6], [-1,0]),
+    ([0,-3,0,1], [0,2], [5,3], [0,1,2]),
+    ([0,-3,0,1], [0,1], [5], [0,1]),
+    ([0,-3,0,1], [1,2], [3], [1,2])
+])
+
+def test_get_template_from_cubic(cubic, interval, template, points):
+    bs = BSplineBasis(5, interval)
+    found_template, found_points = bs.get_template_from_cubic(np.array(cubic), interval)
+    assert np.array_equal(found_template, template)
+    assert np.isclose(found_points, points).all()
+
+def test_get_template_from_coeffs():
+    bs = BSplineBasis(10, (0, 1))
+    rng = np.random.default_rng(0)
+    coeffs = rng.random(bs.n_basis)
+    assert bs.get_template_from_coeffs(coeffs)[0] == [5,3,4,6,5,3,4,6,5,3]
+
