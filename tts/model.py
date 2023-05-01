@@ -70,6 +70,18 @@ class TTS(torch.nn.Module):
             h = self.encoder(X)
             return torch.matmul(Phis,torch.unsqueeze(h,-1)).squeeze(-1) + self.bias
         
+    def predict_latent_variables(self,X):
+        """
+        Args:
+            X: a numpy array of shape (D,M) where D is the number of sample and M is the number of static features
+        Returns:
+            a numpy array of shape (D,B) where D is the number of sample and B is the number of basis functions
+        """
+        device = self.bias.device
+        X = torch.from_numpy(X).float().to(device)
+        self.encoder.eval()
+        with torch.no_grad():
+            return self.encoder(X).cpu().numpy()        
 
     def forecast_trajectory(self,x,t):
         """
