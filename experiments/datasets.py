@@ -131,8 +131,8 @@ class TacrolimusDataset(BaseDataset):
 
 class WindDataset(BaseDataset):
 
-    def __init__(self, company, granularity='daily'):
-        super().__init__(company=company, granularity=granularity)
+    def __init__(self, company, granularity='daily', rolling=False):
+        super().__init__(company=company, granularity=granularity, rolling=rolling)
 
         files = {
             "50Hertz": "50Hertz.csv",
@@ -145,8 +145,13 @@ class WindDataset(BaseDataset):
             file_path = os.path.join("data", "wind_data", files[name])
             df = pd.read_csv(file_path,index_col=0,parse_dates=True,dayfirst=True)
 
+            if self.args.rolling == True:
+                df = df.rolling(window=7).mean()
+            elif type(self.args.rolling) == int:
+                df = df.rolling(window=self.args.rolling, center=True).mean()
+
             df = df.loc['2019-09-01':'2020-08-31',:].copy()
-            df['id'] = list(range(len(df)))
+            df['id'] = [f"{name}{id}" for id in list(range(len(df)))]
             df['day_number'] = list(range(len(df)))
             df['month'] = df.index.month
             df = df.melt(id_vars=['id','day_number','month'],var_name='time', value_name='y')
