@@ -12,7 +12,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 from interpret.glassbox import ExplainableBoostingRegressor
 from xgboost import XGBRegressor
 
-from tts.training import training
+# from tts.training import training
 # from tts.tuning import tuning
 
 from tts.data import TTSDataset, create_dataloader, BaseDataset
@@ -407,7 +407,8 @@ class TTSBenchmark(BaseBenchmark):
                             num_epochs=self.config.num_epochs,
                             dataloader_type=self.config.dataloader_type,
                             internal_knots=self.config.internal_knots,
-                            n_basis_tunable=self.config.n_basis_tunable)
+                            n_basis_tunable=self.config.n_basis_tunable,
+                            dynamic_bias=self.config.dynamic_bias)
         litmodel = LitTTS(config)
         tuning_callback = PyTorchLightningPruningCallback(trial, monitor='val_loss')
         return (litmodel, tuning_callback)
@@ -440,7 +441,10 @@ class TTSBenchmark(BaseBenchmark):
                             dataloader_type=self.config.dataloader_type,
                             device=self.config.device,
                             num_epochs=self.config.num_epochs,
-                            internal_knots=self.config.internal_knots)
+                            internal_knots=self.config.internal_knots,
+                            n_basis_tunable=self.config.n_basis_tunable,
+                            dynamic_bias=self.config.dynamic_bias
+                            )
         else:
             config = self.config
 
@@ -546,7 +550,6 @@ class TTSBenchmark(BaseBenchmark):
         trainer_dict = {
             'deterministic': True,
             'devices': 1,
-            'auto_lr_find': True,
             'enable_model_summary': False,
             'enable_progress_bar': False,
             'accelerator': config.device,

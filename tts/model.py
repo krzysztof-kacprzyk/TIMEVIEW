@@ -5,6 +5,12 @@ import pytorch_lightning as pl
 from tts.basis import BSplineBasis
 from .config import Config
 
+def is_dynamic_bias_enabled(config):
+    if hasattr(config, 'dynamic_bias'):
+        return config.dynamic_bias
+    else:
+        return False
+
 class Encoder(torch.nn.Module):
 
     def __init__(self,config):
@@ -35,7 +41,13 @@ class Encoder(torch.nn.Module):
             self.layers.append(activation)
             self.layers.append(torch.nn.Dropout(self.dropout_p))
         
-        self.layers.append(torch.nn.Linear(self.hidden_sizes[-1],self.n_basis))
+        latent_size = self.n_basis
+
+        if is_dynamic_bias_enabled(config):
+            latent_size += 1
+        
+        self.layers.append(torch.nn.Linear(self.hidden_sizes[-1],latent_size))
+
         self.nn = torch.nn.Sequential(*self.layers)
 
     def forward(self, x):
@@ -51,8 +63,9 @@ class TTS(torch.nn.Module):
         super().__init__()
         torch.manual_seed(config.seed)
         self.config = config
-        self.encoder = Encoder(config)
-        self.bias = torch.nn.Parameter(torch.zeros(1))
+        self.encoder = Encoder(self.config)
+        if not is_dynamic_bias_enabled(self.config):
+            self.bias = torch.nn.Parameter(torch.zeros(1))
         
     
     def forward(self, X, Phis):
@@ -63,12 +76,21 @@ class TTS(torch.nn.Module):
                 if dataloader_type = 'tensor': a tensor of shape (D,N_max,B) where D is the number of sample, N_max is the maximum number of time steps and B is the number of basis functions
                 if dataloader_type = 'iterative': a list of D tensors of shape (N_d,B) where N_d is the number of time steps and B is the number of basis functions
         """
+        h = self.encoder(X)
+        if is_dynamic_bias_enabled(self.config):
+            self.bias = h[:,-1]
+            h = h[:,:-1]
+        
         if self.config.dataloader_type == "iterative":
-            h = self.encoder(X)
-            return [torch.matmul(Phi,h[d,:]) + self.bias for d, Phi in enumerate(Phis)]
+            if is_dynamic_bias_enabled(self.config):
+                return [torch.matmul(Phi,h[d,:]) + self.bias[d] for d, Phi in enumerate(Phis)]
+            else:
+                return [torch.matmul(Phi,h[d,:]) + self.bias for d, Phi in enumerate(Phis)]
         elif self.config.dataloader_type == "tensor":
-            h = self.encoder(X)
-            return torch.matmul(Phis,torch.unsqueeze(h,-1)).squeeze(-1) + self.bias
+            if is_dynamic_bias_enabled(self.config):
+                return torch.matmul(Phis,torch.unsqueeze(h,-1)).squeeze(-1) + torch.unsqueeze(self.bias,-1)
+            else:
+                return torch.matmul(Phis,torch.unsqueeze(h,-1)).squeeze(-1) + self.bias
         
     def predict_latent_variables(self,X):
         """
@@ -80,8 +102,12 @@ class TTS(torch.nn.Module):
         device = self.bias.device
         X = torch.from_numpy(X).float().to(device)
         self.encoder.eval()
-        with torch.no_grad():
-            return self.encoder(X).cpu().numpy()        
+        if is_dynamic_bias_enabled(self.config):
+            with torch.no_grad():
+                return self.encoder(X)[:,:-1].cpu().numpy()
+        else:
+            with torch.no_grad():
+                return self.encoder(X).cpu().numpy()        
 
     def forecast_trajectory(self,x,t):
         """
@@ -98,6 +124,9 @@ class TTS(torch.nn.Module):
         self.encoder.eval()
         with torch.no_grad():
             h = self.encoder(x)
+            if is_dynamic_bias_enabled(self.config):
+                self.bias = h[0,-1]
+                h = h[:,:-1]
             return (torch.matmul(Phi,h[0,:]) + self.bias).cpu().numpy()
 
     def forecast_trajectories(self,X,t):
@@ -115,4 +144,7 @@ class TTS(torch.nn.Module):
         self.encoder.eval()
         with torch.no_grad():
             h = self.encoder(X) # shape (D,B)
-            return (torch.matmul(h,Phi.T)+self.bias).cpu().numpy() # shape (D,N)
+            if is_dynamic_bias_enabled(self.config):
+                self.bias = h[:,-1]
+                h = h[:,:-1]
+            return (torch.matmul(h,Phi.T)+self.bias).cpu().numpy() # shape (D,N), broadcasting will take care of the bias

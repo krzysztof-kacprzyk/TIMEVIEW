@@ -35,7 +35,8 @@ class Config():
                  device='cpu',
                  num_epochs=200,
                  internal_knots=None,
-                 n_basis_tunable=False):
+                 n_basis_tunable=False,
+                 dynamic_bias=False):
 
         if not isinstance(n_features, int):
             raise ValueError("n_features must be an integer > 0")
@@ -84,6 +85,7 @@ class Config():
         self.num_epochs = num_epochs
         self.internal_knots = internal_knots
         self.n_basis_tunable = n_basis_tunable
+        self.dynamic_bias = dynamic_bias
 
 
 
@@ -100,7 +102,8 @@ class TuningConfig(Config):
         device='cpu',
         num_epochs=200,
         internal_knots=None,
-        n_basis_tunable=False
+        n_basis_tunable=False,
+        dynamic_bias=False
     ):
 
         # define hyperparameter search space
@@ -179,4 +182,7 @@ class TuningConfig(Config):
         self.device = device
         self.num_epochs = num_epochs
         self.internal_knots = internal_knots
+        self.n_basis_tunable = n_basis_tunable
+        self.dynamic_bias = dynamic_bias
+        
 
