@@ -97,7 +97,8 @@ def run_benchmarks(dataset_name, benchmarks: dict, dataset_split = [0.7,0.15,0.1
     # Add a row to the DataFrame
     timestamp = datetime.now().strftime('%Y-%m-%dT%H-%M-%S')
     
-    df = df.append({'timestamp':timestamp, 'dataset_name':dataset_name, 'n_trials':n_trials, 'n_tune':n_tune, 'train_size':dataset_split[0], 'val_size':dataset_split[1], 'seed':seed}, ignore_index=True)
+    df = pd.concat([df,pd.DataFrame({'timestamp':[timestamp], 'dataset_name':[dataset_name], 'n_trials':[n_trials], 'n_tune':[n_tune], 'train_size':[dataset_split[0]], 'val_size':[dataset_split[1]], 'seed':[seed]})], ignore_index=True)
+    
     # Save the DataFrame
     df.to_csv(os.path.join(benchmarks_dir, 'summary.csv'))
 
