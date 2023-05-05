@@ -77,6 +77,41 @@ class BaseDataset(ABC):
             ys.append(df_id['y'].values.reshape(-1))
         X = np.concatenate(X, axis=0)
         return X, ts, ys
+    
+    def get_feature_types(self):
+        """
+        This function returns a dictionary that maps feature names to feature types.
+        """
+        feature_ranges = self.get_feature_ranges()
+        feature_types = {}
+        for feature_name in feature_ranges:
+            feature_range = feature_ranges[feature_name]
+            if isinstance(feature_range, tuple):
+                feature_types[feature_name] = 'continuous'
+            elif isinstance(feature_range, list):
+                if len(feature_range) > 2:
+                    feature_types[feature_name] = 'categorical'
+                elif len(feature_range) == 2:
+                    feature_types[feature_name] = 'binary'
+        return feature_types
+    
+    def get_feature_type(self, feature_name):
+        """
+        This function returns the type of a feature
+        Args:
+            feature_name: a string
+        Returns:
+            a string that is either 'continuous', 'categorical' or 'binary'
+        """
+        feature_range = self.get_feature_ranges()[feature_name]
+        if isinstance(feature_range, tuple):
+            return 'continuous'
+        elif isinstance(feature_range, list):
+            if len(feature_range) > 2:
+                return 'categorical'
+            elif len(feature_range) == 2:
+                return 'binary'
+        raise ValueError('Invalid feature range')
 
 class XTYDataset(BaseDataset):
     def __init__(self, X, ts, ys, feature_ranges=None, feature_names=None):

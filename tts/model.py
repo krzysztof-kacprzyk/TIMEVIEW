@@ -99,7 +99,7 @@ class TTS(torch.nn.Module):
         Returns:
             a numpy array of shape (D,B) where D is the number of sample and B is the number of basis functions
         """
-        device = self.bias.device
+        device = self.encoder.layers[0].bias.device
         X = torch.from_numpy(X).float().to(device)
         self.encoder.eval()
         if is_dynamic_bias_enabled(self.config):
@@ -117,7 +117,7 @@ class TTS(torch.nn.Module):
         Returns:
             a numpy array of shape (N,) where N is the number of time steps
         """
-        device = self.bias.device
+        device = self.encoder.layers[0].bias.device
         x = torch.unsqueeze(torch.from_numpy(x),0).float().to(device)
         bspline = BSplineBasis(self.config.n_basis, (0,self.config.T), internal_knots=self.config.internal_knots)
         Phi = torch.from_numpy(bspline.get_matrix(t)).float().to(device)
@@ -137,7 +137,7 @@ class TTS(torch.nn.Module):
         Returns:
             a numpy array of shape (D,N) where D is the number of sample and N is the number of time steps
         """
-        device = self.bias.device
+        device = self.encoder.layers[0].bias.device
         X = torch.from_numpy(X).float().to(device)
         bspline = BSplineBasis(self.config.n_basis, (0,self.config.T), internal_knots=self.config.internal_knots)
         Phi = torch.from_numpy(bspline.get_matrix(t)).float().to(device) # shape (N,B)

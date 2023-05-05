@@ -1,5 +1,6 @@
 from datetime import datetime
 import os
+import joblib
 import numpy as np
 import pandas as pd
 from abc import ABC, abstractmethod, abstractproperty
@@ -24,6 +25,12 @@ from baselines import GAMBenchmark, XGBBenchmark, TTSBenchmark, BaseBenchmark, g
 import argparse
 
 import time
+
+def load_column_transformer(timestamp, benchmarks_dir='benchmarks'):
+    path = os.path.join(benchmarks_dir, timestamp, 'TTS', 'column_transformer.joblib')
+    column_transformer = joblib.load(path)
+    return column_transformer
+
 
 def generate_indices(n, train_size, val_size, seed=0):
     gen = np.random.default_rng(seed)

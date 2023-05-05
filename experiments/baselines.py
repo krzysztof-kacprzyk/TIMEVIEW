@@ -1,5 +1,6 @@
 from datetime import datetime
 import os
+import joblib
 import numpy as np
 import pandas as pd
 from abc import ABC, abstractmethod, abstractproperty
@@ -8,7 +9,9 @@ import pickle
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback
 import pandas as pd
+from sklearn.compose import ColumnTransformer
 from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, OneHotEncoder
 from interpret.glassbox import ExplainableBoostingRegressor
 from xgboost import XGBRegressor
 
@@ -454,18 +457,37 @@ class TTSBenchmark(BaseBenchmark):
     def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
         X, ts, ys = dataset.get_X_ts_ys()
 
+        self.X_train = X[train_indices,:]
+        self.ts_train = [ts[i] for i in train_indices]
+        self.ys_train = [ys[i] for i in train_indices]
+        self.X_val = X[val_indices,:]
+        self.ts_val = [ts[i] for i in val_indices]
+        self.ys_val = [ys[i] for i in val_indices]
+        self.X_test = X[test_indices,:]
+        self.ts_test = [ts[i] for i in test_indices]
+        self.ys_test = [ys[i] for i in test_indices]
+
+        # Transform the data
+        transformers = []
+        for feature_index, feature_name in enumerate(dataset.get_feature_names()):
+            if dataset.get_feature_type(feature_name) == 'continuous':
+                transformer = StandardScaler()
+            elif dataset.get_feature_type(feature_name) == 'categorical' or dataset.get_feature_type(feature_name) == 'binary':
+                transformer = OneHotEncoder(categories=dataset.get_feature_ranges()[feature_name],sparse_output=False,drop='if_binary')
+            transformers.append((f"{feature_name}_transformer", transformer, [feature_index]))
+        transformer = ColumnTransformer(transformers=transformers)
+
+        self.X_train = transformer.fit_transform(self.X_train)
+        self.X_val = transformer.transform(self.X_val)
+        self.X_test = transformer.transform(self.X_test)
+
+        # Save the transformer using joblib
+        os.makedirs(os.path.join(self.benchmarks_dir, self.name), exist_ok=True)
+        joblib.dump(transformer, os.path.join(self.benchmarks_dir, self.name, 'column_transformer.joblib'))
+
         if self.config.n_basis_tunable:
             # That means that we cannot precompute the internal knots and instantiate the datasets
             # Instead we will have to do it in the train function
-            self.X_train = X[train_indices,:]
-            self.ts_train = [ts[i] for i in train_indices]
-            self.ys_train = [ys[i] for i in train_indices]
-            self.X_val = X[val_indices,:]
-            self.ts_val = [ts[i] for i in val_indices]
-            self.ys_val = [ys[i] for i in val_indices]
-            self.X_test = X[test_indices,:]
-            self.ts_test = [ts[i] for i in test_indices]
-            self.ys_test = [ys[i] for i in test_indices]
             return
         else: 
             if self.config.internal_knots is None:
@@ -480,9 +502,9 @@ class TTSBenchmark(BaseBenchmark):
 
                 self.config.internal_knots = internal_knots
 
-            self.train_dataset = TTSDataset(self.config, (X[train_indices,:], [ts[i] for i in train_indices], [ys[i] for i in train_indices]))
-            self.val_dataset = TTSDataset(self.config, (X[val_indices,:], [ts[i] for i in val_indices], [ys[i] for i in val_indices]))
-            self.test_dataset = TTSDataset(self.config, (X[test_indices,:], [ts[i] for i in test_indices], [ys[i] for i in test_indices]))
+            self.train_dataset = TTSDataset(self.config, (self.X_train, self.ts_train, self.ys_train))
+            self.val_dataset = TTSDataset(self.config, (self.X_val, self.ts_val, self.ys_val))
+            self.test_dataset = TTSDataset(self.config, (self.X_test, self.ts_test, self.ys_test))
         
 
     def train(self, model, tuning=False):
