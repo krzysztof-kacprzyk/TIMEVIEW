@@ -236,7 +236,7 @@ class MIMICDataset(BaseDataset):
         subset_indices = gen.choice(n, int(n*subset), replace=False)
         subset_indices = [i.item() for i in subset_indices]
 
-        X = X[subset_indices, :]
+        X = X.iloc[subset_indices, :]
         ts = [ts[i] for i in subset_indices]
         ys = [ys[i] for i in subset_indices]
 
@@ -426,7 +426,11 @@ class SyntheticTumorDataset(BaseDataset):
                         noise_std = self.args.noise_std,
                         seed = self.args.seed,
                         equation = self.args.equation)
-        self.X = X
+        if self.args.equation == "wilkerson":
+            self.X = pd.DataFrame(X, columns=["age", "weight", "initial_tumor_volume", "dosage"])
+        elif self.args.equation == "geng":
+            self.X = pd.DataFrame(X, columns=["age", "weight", "initial_tumor_volume", "start_time", "dosage"])
+
         self.ts = ts
         self.ys = ys
     

@@ -180,17 +180,23 @@ class MeanBenchmark(BaseBenchmark):
     def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
         """Prepare the data for the benchmark."""
         data_train = dataset.get_single_matrix(train_indices)
-        self.X_train = data_train[:,:-1]    
-        self.y_train = data_train[:,-1]
+        self.X_train = data_train.iloc[:,:-1]    
+        self.y_train = data_train.iloc[:,-1].to_numpy()
         
         data_val = dataset.get_single_matrix(val_indices)
-        self.X_val = data_val[:,:-1]
-        self.y_val = data_val[:,-1]
+        self.X_val = data_val.iloc[:,:-1]
+        self.y_val = data_val.iloc[:,-1].to_numpy()
+
+        column_transformer = dataset.get_default_column_transformer()
+
+        self.X_train = column_transformer.fit_transform(self.X_train)
+        self.X_val = column_transformer.transform(self.X_val)
 
         self.test_samples = []
         for i in test_indices:
-            X = dataset.get_single_matrix([i])[:,:-1]
-            y = dataset.get_single_matrix([i])[:,-1]
+            X = dataset.get_single_matrix([i]).iloc[:,:-1]
+            X = column_transformer.transform(X)
+            y = dataset.get_single_matrix([i]).iloc[:,-1].to_numpy()
             self.test_samples.append((X,y))
     
     def train(self, model, tuning=False):
@@ -250,22 +256,24 @@ class GAMBenchmark(BaseBenchmark):
     
     def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
         
-        data_train = np.asfortranarray(dataset.get_single_matrix(train_indices))
-        self.X_train = data_train[:,:-1]    
-        self.y_train = data_train[:,-1]
+        data_train = dataset.get_single_matrix(train_indices)
+        self.X_train = data_train.iloc[:,:-1]    
+        self.y_train = data_train.iloc[:,-1].to_numpy()
         
-        data_val = np.asfortranarray(dataset.get_single_matrix(val_indices))
-        self.X_val = data_val[:,:-1]
-        self.y_val = data_val[:,-1]
+        data_val = dataset.get_single_matrix(val_indices)
+        self.X_val = data_val.iloc[:,:-1]
+        self.y_val = data_val.iloc[:,-1].to_numpy()
 
-        # data_test = np.asfortranarray(dataset.get_single_matrix(test_indices))
-        # self.X_test = data_test[:,:-1]
-        # self.y_test = data_test[:,-1]
+        column_transformer = dataset.get_default_column_transformer()
+
+        self.X_train = column_transformer.fit_transform(self.X_train)
+        self.X_val = column_transformer.transform(self.X_val)
 
         self.test_samples = []
         for i in test_indices:
-            X = dataset.get_single_matrix([i])[:,:-1]
-            y = dataset.get_single_matrix([i])[:,-1]
+            X = dataset.get_single_matrix([i]).iloc[:,:-1]
+            X = column_transformer.transform(X)
+            y = dataset.get_single_matrix([i]).iloc[:,-1].to_numpy()
             self.test_samples.append((X,y))
     
     def train(self, model, tuning=False):
@@ -333,22 +341,24 @@ class XGBBenchmark(BaseBenchmark):
     
     def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
         
-        data_train = np.asfortranarray(dataset.get_single_matrix(train_indices))
-        self.X_train = data_train[:,:-1]    
-        self.y_train = data_train[:,-1]
+        data_train = dataset.get_single_matrix(train_indices)
+        self.X_train = data_train.iloc[:,:-1]    
+        self.y_train = data_train.iloc[:,-1].to_numpy()
         
-        data_val = np.asfortranarray(dataset.get_single_matrix(val_indices))
-        self.X_val = data_val[:,:-1]
-        self.y_val = data_val[:,-1]
+        data_val = dataset.get_single_matrix(val_indices)
+        self.X_val = data_val.iloc[:,:-1]
+        self.y_val = data_val.iloc[:,-1].to_numpy()
 
-        # data_test = np.asfortranarray(dataset.get_single_matrix(test_indices))
-        # self.X_test = data_test[:,:-1]
-        # self.y_test = data_test[:,-1]
+        column_transformer = dataset.get_default_column_transformer()
+
+        self.X_train = column_transformer.fit_transform(self.X_train)
+        self.X_val = column_transformer.transform(self.X_val)
 
         self.test_samples = []
         for i in test_indices:
-            X = dataset.get_single_matrix([i])[:,:-1]
-            y = dataset.get_single_matrix([i])[:,-1]
+            X = dataset.get_single_matrix([i]).iloc[:,:-1]
+            X = column_transformer.transform(X)
+            y = dataset.get_single_matrix([i]).iloc[:,-1].to_numpy()
             self.test_samples.append((X,y))
     
     def train(self, model, tuning=False):
@@ -457,25 +467,18 @@ class TTSBenchmark(BaseBenchmark):
     def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
         X, ts, ys = dataset.get_X_ts_ys()
 
-        self.X_train = X[train_indices,:]
+        self.X_train = X.iloc[train_indices,:]
         self.ts_train = [ts[i] for i in train_indices]
         self.ys_train = [ys[i] for i in train_indices]
-        self.X_val = X[val_indices,:]
+        self.X_val = X.iloc[val_indices,:]
         self.ts_val = [ts[i] for i in val_indices]
         self.ys_val = [ys[i] for i in val_indices]
-        self.X_test = X[test_indices,:]
+        self.X_test = X.iloc[test_indices,:]
         self.ts_test = [ts[i] for i in test_indices]
         self.ys_test = [ys[i] for i in test_indices]
 
         # Transform the data
-        transformers = []
-        for feature_index, feature_name in enumerate(dataset.get_feature_names()):
-            if dataset.get_feature_type(feature_name) == 'continuous':
-                transformer = StandardScaler()
-            elif dataset.get_feature_type(feature_name) == 'categorical' or dataset.get_feature_type(feature_name) == 'binary':
-                transformer = OneHotEncoder(categories=dataset.get_feature_ranges()[feature_name],sparse_output=False,drop='if_binary')
-            transformers.append((f"{feature_name}_transformer", transformer, [feature_index]))
-        transformer = ColumnTransformer(transformers=transformers)
+        transformer = dataset.get_default_column_transformer()
 
         self.X_train = transformer.fit_transform(self.X_train)
         self.X_val = transformer.transform(self.X_val)
@@ -492,12 +495,10 @@ class TTSBenchmark(BaseBenchmark):
         else: 
             if self.config.internal_knots is None:
                 # We need to find the internal knots
-                ts_train = [ts[i] for i in train_indices]
-                ys_train = [ys[i] for i in train_indices]
 
                 n_internal_knots = self.config.n_basis - 2
 
-                internal_knots = calculate_knot_placement(ts_train, ys_train, n_internal_knots, T=self.config.T, seed=self.config.seed)
+                internal_knots = calculate_knot_placement(self.ts_train, self.ys_train, n_internal_knots, T=self.config.T, seed=self.config.seed)
                 print(f'Found internal knots: {internal_knots}')
 
                 self.config.internal_knots = internal_knots

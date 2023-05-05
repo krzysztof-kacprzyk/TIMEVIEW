@@ -5,6 +5,8 @@ from .config import Config, TuningConfig
 from .basis import BSplineBasis
 import pandas as pd
 from scipy.integrate import odeint
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
 
 from abc import abstractmethod, ABC
 from types import SimpleNamespace
@@ -48,18 +50,26 @@ class BaseDataset(ABC):
 
     def get_single_matrix(self, indices):
         X, ts, ys = self.get_X_ts_ys()
+        static_cols = list(X.columns)
         samples = []
         for i in indices:
             n_rows = len(ts[i])
-            X_i_tiled = np.tile(X[i], (n_rows, 1))
-            samples.append(np.concatenate((X_i_tiled, np.expand_dims(ts[i],1), np.expand_dims(ys[i],1)), axis=1))
-        return np.concatenate(samples, axis=0)
+            X_i_tiled = pd.concat([X.iloc[[i],:]] * n_rows, ignore_index=True, axis=0)
+            X_i_tiled['t'] = ts[i]
+            X_i_tiled['y'] = ys[i]
+            samples.append(X_i_tiled)
+        whole_df = pd.concat(samples, axis=0, ignore_index=True)
+        return whole_df[static_cols + ['t', 'y']]
 
     def _extract_data_from_one_dataframe(self, df):
         """
         This function extracts the data from one dataframe
         Args:
-              df a pandas dataframe with columns ['id','x1','x2',...,'xM','t','y'] where the first M columns are the static features and the last two columns are the time and the observation
+            df a pandas dataframe with columns ['id','x1','x2',...,'xM','t','y'] where the first M columns are the static features and the last two columns are the time and the observation
+        Returns:
+            X: a pandas dataframe of shape (D,M) where D is the number of samples and M is the number of static features
+            ts: a list of D 1D numpy arrays of shape (N_i,) where N_i is the number of time steps for the i-th sample
+            ys: a list of D 1D numpy arrays of shape (N_i,) where N_i is the number of time steps for the i-th sample
         """
         # TODO: Validate data
 
@@ -70,12 +80,12 @@ class BaseDataset(ABC):
         for id in ids:
             df_id = df[df['id'] == id].copy()
             X.append(
-                df_id.iloc[0, 1:-2].values.astype(np.float32).reshape(1, -1))
+                df_id.iloc[0, 1:-2])
             # print(X)
             df_id.sort_values(by='t', inplace=True)
             ts.append(df_id['t'].values.reshape(-1))
             ys.append(df_id['y'].values.reshape(-1))
-        X = np.concatenate(X, axis=0)
+        X = pd.concat(X, axis=0, ignore_index=True)
         return X, ts, ys
     
     def get_feature_types(self):
@@ -112,6 +122,22 @@ class BaseDataset(ABC):
             elif len(feature_range) == 2:
                 return 'binary'
         raise ValueError('Invalid feature range')
+    
+    def get_default_column_transformer(self):
+        """
+        Creates a default column transformer for the dataset
+        Returns:
+            a sklearn ColumnTransformer object
+        """
+        transformers = []
+        for feature_index, feature_name in enumerate(self.get_feature_names()):
+            if self.get_feature_type(feature_name) == 'continuous':
+                transformer = StandardScaler()
+            elif self.get_feature_type(feature_name) == 'categorical' or self.get_feature_type(feature_name) == 'binary':
+                transformer = OneHotEncoder(categories=self.get_feature_ranges()[feature_name],sparse_output=False,drop='if_binary')
+            transformers.append((f"{feature_name}_transformer", transformer, [feature_index]))
+        transformer = ColumnTransformer(transformers=transformers, remainder='passthrough') # The remainder option is needed to pass the time column for static methods
+        return transformer
 
 class XTYDataset(BaseDataset):
     def __init__(self, X, ts, ys, feature_ranges=None, feature_names=None):
