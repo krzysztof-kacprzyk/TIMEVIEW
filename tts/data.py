@@ -80,10 +80,10 @@ class BaseDataset(ABC):
         for id in ids:
             df_id = df[df['id'] == id].copy()
             X.append(
-                df_id.iloc[0, 1:-2])
+                df_id.iloc[[0], 1:-2])
             # print(X)
             df_id.sort_values(by='t', inplace=True)
-            ts.append(df_id['t'].values.reshape(-1))
+            ts.append(df_id['t'].sort_values().values.reshape(-1))
             ys.append(df_id['y'].values.reshape(-1))
         X = pd.concat(X, axis=0, ignore_index=True)
         return X, ts, ys
@@ -134,7 +134,7 @@ class BaseDataset(ABC):
             if self.get_feature_type(feature_name) == 'continuous':
                 transformer = StandardScaler()
             elif self.get_feature_type(feature_name) == 'categorical' or self.get_feature_type(feature_name) == 'binary':
-                transformer = OneHotEncoder(categories=self.get_feature_ranges()[feature_name],sparse_output=False,drop='if_binary')
+                transformer = OneHotEncoder(categories=[self.get_feature_ranges()[feature_name]],sparse_output=False,drop='if_binary')
             transformers.append((f"{feature_name}_transformer", transformer, [feature_index]))
         transformer = ColumnTransformer(transformers=transformers, remainder='passthrough') # The remainder option is needed to pass the time column for static methods
         return transformer
