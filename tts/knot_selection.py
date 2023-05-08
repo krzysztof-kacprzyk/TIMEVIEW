@@ -15,6 +15,11 @@ def get_knots_for_single_trajectory(t, y, n_internal_knots, s_guess=None, verbos
     else:
         s = s_guess
 
+    # First check what is the maximum number of knots that can be found
+    found_knots = UnivariateSpline(t, y, s=0).get_knots()
+    if n_internal_knots >= len(found_knots):
+        return found_knots, 0.0
+
     while True:
         if verbose:
             print(f"Trying s={s}")
