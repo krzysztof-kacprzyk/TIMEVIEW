@@ -30,7 +30,73 @@ def get_baseline(name, parameter_dict=None):
     class_name = name + 'Benchmark'
     return globals()[class_name](**parameter_dict)
 
-            
+class YNormalizer:
+    """Normalize y values."""
+
+    def __init__(self):
+        self.fitted = False
+
+    def fit(self, ys):
+        """Fit normalization parameters."""
+        if self.fitted:
+            raise RuntimeError('Already fitted.')
+        if isinstance(ys, list):
+            Y = np.concatenate(ys, axis=0)
+        else:
+            Y = ys
+        self.y_mean = np.mean(Y)
+        self.y_std = np.std(Y)
+        self.fitted = True
+
+    def transform(self, ys):
+        """Normalize y values."""
+        if not self.fitted:
+            raise RuntimeError('Call fit before transform.')
+        if isinstance(ys, list):
+            return [(y - self.y_mean) / self.y_std for y in ys]
+        else:
+            return (ys - self.y_mean) / self.y_std
+    
+    def inverse_transform(self, ys):
+        """Denormalize y values."""
+        if not self.fitted:
+            raise RuntimeError('Call fit before transform.')
+        if isinstance(ys, list):
+            return [y * self.y_std + self.y_mean for y in ys]
+        else:
+            return ys * self.y_std + self.y_mean
+    
+    def save(self, path):
+        """Save normalization parameters using json"""
+        y_normalization = {'y_mean': self.y_mean, 'y_std': self.y_std}
+        full_path = os.path.join(path, "y_normalizer.json")
+        with open(full_path, 'w') as f:
+            json.dump(y_normalization, f)
+    
+    def load(path):
+        """Load normalization parameters using json"""
+        with open(path, 'r') as f:
+            y_normalization = json.load(f)
+        ynormalizer = YNormalizer()
+        ynormalizer.set_params(y_normalization['y_mean'], y_normalization['y_std'])
+        return ynormalizer
+
+    def load_from_benchmark(timestamp, name, benchmark_dir='benchmarks'):
+        """Load normalization parameters from a benchmark."""
+        path = os.path.join(benchmark_dir, timestamp, name, 'y_normalizer.json')
+        return YNormalizer.load(path)
+
+    def set_params(self, y_mean, y_std):
+        """Set normalization parameters."""
+        self.y_mean = y_mean
+        self.y_std = y_std
+        self.fitted = True
+
+    def fit_transform(self, ys):
+        """Fit normalization parameters and normalize y values."""
+        self.fit(ys)
+        return self.transform(ys)
+
 
 class BaseBenchmark(ABC):
     """Base class for benchmarks."""
@@ -188,15 +254,20 @@ class MeanBenchmark(BaseBenchmark):
         self.y_val = data_val.iloc[:,-1].to_numpy()
 
         column_transformer = dataset.get_default_column_transformer()
+        y_normalizer = YNormalizer()
 
         self.X_train = column_transformer.fit_transform(self.X_train)
+        self.y_train = y_normalizer.fit_transform(self.y_train)
+
         self.X_val = column_transformer.transform(self.X_val)
+        self.y_val = y_normalizer.transform(self.y_val)
 
         self.test_samples = []
         for i in test_indices:
             X = dataset.get_single_matrix([i]).iloc[:,:-1]
             X = column_transformer.transform(X)
             y = dataset.get_single_matrix([i]).iloc[:,-1].to_numpy()
+            y = y_normalizer.transform(y)
             self.test_samples.append((X,y))
     
     def train(self, model, tuning=False):
@@ -265,16 +336,28 @@ class GAMBenchmark(BaseBenchmark):
         self.y_val = data_val.iloc[:,-1].to_numpy()
 
         column_transformer = dataset.get_default_column_transformer()
+        y_normalizer = YNormalizer()
 
         self.X_train = column_transformer.fit_transform(self.X_train)
+        self.y_train = y_normalizer.fit_transform(self.y_train)
+
         self.X_val = column_transformer.transform(self.X_val)
+        self.y_val = y_normalizer.transform(self.y_val)
 
         self.test_samples = []
         for i in test_indices:
             X = dataset.get_single_matrix([i]).iloc[:,:-1]
             X = column_transformer.transform(X)
             y = dataset.get_single_matrix([i]).iloc[:,-1].to_numpy()
+            y = y_normalizer.transform(y)
             self.test_samples.append((X,y))
+
+        # Save the transformer using joblib
+        os.makedirs(os.path.join(self.benchmarks_dir, self.name), exist_ok=True)
+        joblib.dump(column_transformer, os.path.join(self.benchmarks_dir, self.name, 'column_transformer.joblib'))
+
+        # Save y_normalizer
+        y_normalizer.save(os.path.join(self.benchmarks_dir, self.name))
     
     def train(self, model, tuning=False):
         """Train model."""
@@ -350,16 +433,28 @@ class XGBBenchmark(BaseBenchmark):
         self.y_val = data_val.iloc[:,-1].to_numpy()
 
         column_transformer = dataset.get_default_column_transformer()
+        y_normalizer = YNormalizer()
 
         self.X_train = column_transformer.fit_transform(self.X_train)
+        self.y_train = y_normalizer.fit_transform(self.y_train)
+
         self.X_val = column_transformer.transform(self.X_val)
+        self.y_val = y_normalizer.transform(self.y_val)
 
         self.test_samples = []
         for i in test_indices:
             X = dataset.get_single_matrix([i]).iloc[:,:-1]
             X = column_transformer.transform(X)
             y = dataset.get_single_matrix([i]).iloc[:,-1].to_numpy()
+            y = y_normalizer.transform(y)
             self.test_samples.append((X,y))
+
+        # Save the transformer using joblib
+        os.makedirs(os.path.join(self.benchmarks_dir, self.name), exist_ok=True)
+        joblib.dump(column_transformer, os.path.join(self.benchmarks_dir, self.name, 'column_transformer.joblib'))
+
+        # Save y_normalizer
+        y_normalizer.save(os.path.join(self.benchmarks_dir, self.name))
     
     def train(self, model, tuning=False):
         """Train model."""
@@ -479,14 +574,22 @@ class TTSBenchmark(BaseBenchmark):
 
         # Transform the data
         transformer = dataset.get_default_column_transformer()
+        y_normalizer = YNormalizer()
 
         self.X_train = transformer.fit_transform(self.X_train)
+        self.ys_train = y_normalizer.fit_transform(self.ys_train)
+
         self.X_val = transformer.transform(self.X_val)
+        self.ys_val = y_normalizer.transform(self.ys_val)
         self.X_test = transformer.transform(self.X_test)
+        self.ys_test = y_normalizer.transform(self.ys_test)
 
         # Save the transformer using joblib
         os.makedirs(os.path.join(self.benchmarks_dir, self.name), exist_ok=True)
         joblib.dump(transformer, os.path.join(self.benchmarks_dir, self.name, 'column_transformer.joblib'))
+
+        # Save y_normalizer
+        y_normalizer.save(os.path.join(self.benchmarks_dir, self.name))
 
         if self.config.n_basis_tunable:
             # That means that we cannot precompute the internal knots and instantiate the datasets

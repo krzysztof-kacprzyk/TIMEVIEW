@@ -26,8 +26,8 @@ import argparse
 
 import time
 
-def load_column_transformer(timestamp, benchmarks_dir='benchmarks'):
-    path = os.path.join(benchmarks_dir, timestamp, 'TTS', 'column_transformer.joblib')
+def load_column_transformer(timestamp, baseline='TTS', benchmarks_dir='benchmarks'):
+    path = os.path.join(benchmarks_dir, timestamp, baseline, 'column_transformer.joblib')
     column_transformer = joblib.load(path)
     return column_transformer
 

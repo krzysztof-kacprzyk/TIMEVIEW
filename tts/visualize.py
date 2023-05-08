@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 import tkinter as tk
 from tkinter import ttk
-from ipywidgets import interact, FloatSlider, Text, Box, Label, HBox, VBox, Layout, Output, interactive_output, GridspecLayout, Button, Dropdown
+from ipywidgets import interact, SelectionSlider, FloatSlider, Text, Box, Label, HBox, VBox, Layout, Output, interactive_output, GridspecLayout, Button, Dropdown
 import numpy as np
 from sklearn.compose import ColumnTransformer
 from tts.basis import BSplineBasis
@@ -69,6 +69,52 @@ def simple_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(
     
     simple_interactive_plot(trajectory, time_horizon, trajectory_range, feature_ranges, n_points, figsize=figsize)
 
+def simple_baseline_plot(model, dataset, time_horizon, trajectory_range, column_transformer, n_points=1000, figsize=(8, 3)):
+    """
+    """
+    t = np.linspace(0, time_horizon, n_points)
+
+    # Set up the figure and axes
+    fig = plt.figure(figsize=figsize)
+    line, = plt.plot([], [], lw=2) # initialize the line with empty data
+
+    plt.title("y = tts(t)")
+    plt.xlim(0, time_horizon)
+    plt.ylim(trajectory_range[0], trajectory_range[1])
+    plt.xlabel('t')
+    plt.ylabel('y')
+    plt.close()
+
+    feature_names = dataset.get_feature_names()
+    feature_ranges = dataset.get_feature_ranges()
+    feature_types = dataset.get_feature_types()
+
+    def f(t, **x):
+        features = pd.DataFrame(x, index=[0])
+        features = features[feature_names]
+        X = pd.concat([features] * len(t), ignore_index=True)
+        X['t'] = t
+        # print(X.info())
+        X = column_transformer.transform(X)
+        # print(X.shape)
+        y_pred = model.predict(X)
+        return y_pred
+    
+    def plot_f(**x):
+        y = f(t, **x)
+        line.set_data(t, y)
+        display(fig)
+    
+    ## Generate our user interface.
+    # Create a dictionary of sliders, one for each feature.
+    sliders = {}
+    for k, v in feature_ranges.items():
+        if feature_types[k] == 'continuous':
+            sliders[k] = FloatSlider(min=v[0], max=v[1], step=0.01, value=v[0])
+        else:
+            sliders[k] = SelectionSlider(options=v, value=v[0])
+
+    interact(plot_f, **sliders);
 
 def draw_rectangles(transitions, colors):
 
@@ -155,22 +201,23 @@ class MetaTemplateContext():
         coeffs = self.litmodel.model.predict_latent_variables(self.current_transformed_features)
         template, transition_points = self.bspline.get_template_from_coeffs(coeffs[0,:])
 
-        new_template = False
-        if template != self.current_template:
-            new_template = True
-            # Update the transition point trajectories
-            self.transition_points_trajectories = {}
-            for x_axis in self.feature_names:
-                query_points, trans_x_all, trans_y_all = self._get_transition_point_curves(raw_features, x_axis)
-                self.transition_points_trajectories[x_axis] = {
-                    'query_points': query_points,
-                    'transition_points': [
-                        {'t':trans_x_all[index],
-                         'y':trans_y_all[index]}
-                    for index in range(len(trans_x_all))]
-                }
+        # Update the transition point trajectories
+        self.transition_points_trajectories = {}
+        for x_axis in self.feature_names:
+            query_points, trans_x_all, trans_y_all = self._get_transition_point_curves(raw_features, x_axis)
+            self.transition_points_trajectories[x_axis] = {
+                'query_points': query_points,
+                'transition_points': [
+                    {'t':trans_x_all[index],
+                        'y':trans_y_all[index]}
+                for index in range(len(trans_x_all))]
+            }
+
+        new_template = (template != self.current_template)
+
         self.current_template = template
         self.current_transition_points = transition_points
+
         return new_template
     
     def _get_query_points(self, feature_name):
@@ -205,7 +252,9 @@ class MetaTemplateContext():
             if templates[i] != templates[i-1]:
                 combined_templates.append(templates[i])
                 transitions.append(query_points[i])
-        transitions.append(query_points[-1])
+        
+        if self.feature_types[feature_name] == 'continuous':
+            transitions.append(query_points[-1])
 
         # If the feature is categorical or binary, the transition points are the categories.
         return combined_templates, transitions
@@ -217,7 +266,7 @@ class MetaTemplateContext():
         curr_x_axis_value = raw_features.loc[0,x_axis]
 
         if self.feature_types[x_axis] == 'categorical' or self.feature_types[x_axis] == 'binary':
-            numerical_transitions = [self.feature_ranges[x_axis].index(transition) for transition in transitions]
+            numerical_transitions = [self.feature_ranges[x_axis].index(transition) for transition in transitions] + [len(self.feature_ranges[x_axis])]
             curr_x_axis_value_numerical = self.feature_ranges[x_axis].index(curr_x_axis_value)
             first_transition_point_on_the_right = bisect_right(numerical_transitions, curr_x_axis_value_numerical)
             prev_point = numerical_transitions[first_transition_point_on_the_right-1]
@@ -439,9 +488,9 @@ def _transform_feature_dict(x, feature_names, column_transformer):
 
 def _extract_raw_features(x, feature_names):
     # This function takes a dictionary of features and returns a dataframe with one row and the features as columns
-    return pd.DataFrame({feature_name: x[feature_name] for feature_name in feature_names}, index=[0])
+    return pd.DataFrame(x, index=[0])[feature_names]
 
-def expert_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(8, 3), column_transformer=None):
+def expert_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(8, 3), column_transformer=None, y_normalizer=None):
 
     # Get the time horizon and trajectory range
     time_horizon = litmodel.config.T
@@ -452,6 +501,12 @@ def expert_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(
     if not _verify_column_transformer(column_transformer, feature_names):
         print("Warning: column transformer does not match feature names")
         raise ValueError("Invalid column transformer")
+    
+    def transform_y(y):
+        if y_normalizer is not None:
+                return y_normalizer.inverse_transform(y)
+        else:
+            return y
 
     config = litmodel.config
 
@@ -477,6 +532,7 @@ def expert_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(
     second_fig, second_ax = plt.subplots(figsize=(figsize[0]*0.65, figsize[1]*0.65))
     second_line, = second_ax.plot([],[],lw=2, zorder=1)
     second_scat = second_ax.scatter([],[], s=30, c='black', zorder=2)
+    second_bar = second_ax.bar([], [], zorder=1)
     plt.close()
 
 
@@ -527,7 +583,17 @@ def expert_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(
     # Create a dictionary of sliders, one for each feature.
     sliders = {}
     for k, v in feature_ranges.items():
-        sliders[k] = FloatSlider(min=v[0], max=v[1], step=0.01, value=v[0])
+        if feature_types[k] == 'categorical' or feature_types[k] == 'binary':
+            sliders[k] = SelectionSlider(
+                options = v,
+                value = v[0],
+                disabled=False,
+                orientation='horizontal',
+            )
+        else:
+            step = (v[1] - v[0]) / n_points
+            sliders[k] = FloatSlider(min=v[0], max=v[1], step=step, value=v[0])
+
         sliders[k].layout.margin = '0px 0px 0px 5px'
 
 
@@ -544,6 +610,10 @@ def expert_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(
 
         for i in range(len(feature_names)):
             combined_templates, transitions = meta_template_context.get_meta_templates_and_transitions(i)
+            if feature_types[feature_names[i]] == 'categorical' or feature_types[feature_names[i]] == 'binary':
+                transitions_numerical = [feature_ranges[feature_names[i]].index(f) for f in transitions]
+                transitions = transitions_numerical + [len(feature_ranges[feature_names[i]])]
+
             colors_to_use = []
             for combined_template in combined_templates:
                 if tuple(combined_template) not in color_map:
@@ -567,10 +637,23 @@ def expert_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(
 
         with main_plot:
             main_plot.clear_output(wait=True)
-            line.set_data(t, y)
-            scat.set_offsets(np.c_[transition_points_x, transition_points_y])
+            line.set_data(t, transform_y(y))
+            scat.set_offsets(np.c_[transition_points_x, transform_y(transition_points_y)])
             display(main_fig)
 
+
+    def update_bar_plot(ax, x_values, y_values, colors):
+        # Remove the previous bars
+        for bar in ax.containers:
+            bar.remove()
+        ax.containers.clear()
+
+        # Create new bars with the updated data
+        new_bar_plot = ax.bar(x_values, y_values, zorder=1, color=colors, width=0.5)
+
+        return new_bar_plot
+
+    colors_for_bar_plots = {}
         
     def update_secondary(**x):
         if x['transition_point'] == '?':
@@ -584,27 +667,67 @@ def expert_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(
                 x_axis = x['x_axis']
                 y_axis = x['y_axis']
                 x_values, y_values = meta_template_context.get_transition_point_curve(x_axis, y_axis, transition_point)
-               
-                # print(x_values)
-                # print(y_values)
-                second_ax.set_xlim(x_values[0], x_values[-1])
+                curr_x = meta_template_context.get_current_value(x_axis)
+
+                if y_axis == 'y':
+                    y_values = transform_y(y_values)
+
                 y_max = np.max(y_values)
                 y_min = np.min(y_values)
                 if y_max == y_min:
                     y_min = y_min - 1.0
                     y_max = y_max + 1.0
-                second_ax.set_ylim(y_min, y_max)
-                curr_x = meta_template_context.get_current_value(x_axis)
-                if curr_x > x_values[-1]:
-                    curr_x = x_values[-1]
-                elif curr_x < x_values[0]:
-                    curr_x = x_values[0]
+                y_range = y_max - y_min
+                y_min -= 0.1 * y_range
+                y_max += 0.1 * y_range
 
-                curr_y = y_values[bisect_left(x_values, curr_x)]
-                
-                secondary_plot.clear_output(wait=True)
-                second_line.set_data(x_values, y_values)
-                second_scat.set_offsets(np.c_[[curr_x],[curr_y]])
+                if feature_types[x_axis] == 'continuous':
+ 
+                    second_ax.set_xlim(x_values[0], x_values[-1])
+                    second_ax.set_ylim(y_min, y_max)
+                    
+                    if curr_x > x_values[-1]:
+                        curr_x = x_values[-1]
+                    elif curr_x < x_values[0]:
+                        curr_x = x_values[0]
+
+                    curr_y = y_values[bisect_left(x_values, curr_x)]
+                    
+                    secondary_plot.clear_output(wait=True)
+                    update_bar_plot(second_ax, [],[],[])
+                    second_line.set_data(x_values, y_values)
+                    second_scat.set_offsets(np.c_[[curr_x],[curr_y]])
+
+                elif feature_types[x_axis] == 'categorical' or feature_types[x_axis] == 'binary':
+
+                    if x_axis not in colors_for_bar_plots:
+                        colors_for_bar_plots[x_axis] = {}
+
+                    colors = []    
+                    
+                    for x_value in x_values:
+                        if x_value not in colors_for_bar_plots[x_axis]:
+                            colors_for_bar_plots[x_axis][x_value] = next(random_color_iter)
+                        colors.append(colors_for_bar_plots[x_axis][x_value])
+                   
+                    x_labels = x_values
+                    x_values = list(range(len(x_labels)))
+
+                    secondary_plot.clear_output(wait=True)
+
+                    update_bar_plot(second_ax, x_values, y_values, colors)
+                    second_line.set_data([], [])
+
+                    curr_x = meta_template_context.get_current_value(x_axis)
+                    curr_x = x_labels.index(curr_x)
+                    curr_y = y_values[curr_x]
+
+                    second_scat.set_offsets(np.c_[[curr_x],[curr_y]])
+                    second_ax.set_xticks(x_values,x_labels)
+
+                    second_ax.set_xlim(x_values[0]-0.5, x_values[-1]+0.5)
+                    second_ax.set_ylim(y_min,y_max)
+                   
                 display(second_fig)
             else:
                 secondary_plot.clear_output()
