@@ -4,6 +4,7 @@ import json
 import os
 import numpy as np
 import pandas as pd
+import glob
 
 def save_dataset(dataset_name, dataset_builder, dataset_dictionary, notes="", dataset_description_path="dataset_descriptions"):
     # Check if a dataset description directory exists. If not, create it.
@@ -48,6 +49,145 @@ def get_class_by_name(class_name):
     This function takes a class name as an argument and returns a python class with this name that is implemented in this module.
     """
     return globals()[class_name]
+
+
+class CelgeneDataset(BaseDataset):
+
+    def __init__(self):
+        super().__init__()
+        df = pd.read_csv(os.path.join("data", "celgene", "celgene.csv"))
+        df = df[df['t'] <= 365]
+        df['t'] = df['t'] / 365 # scale
+
+        df['y'] = df['y'] / 100 # scale
+        # Filter out patients with fewer than 3 observations
+        df = df.groupby('id').filter(lambda x: len(x) > 4)
+        # Filter out duplicate observation times (keep the first one)
+        df = df.groupby(['id', 't']).first().reset_index()
+        df = df[['id'] + self.get_feature_names() + ['t','y']]
+
+
+        self.X, self.ts, self.ys = self._extract_data_from_one_dataframe(df)
+    
+    def get_X_ts_ys(self):
+        return self.X, self.ts, self.ys
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def get_feature_names(self):
+        return ['age', 'race', 'ECOG', 'location', 'bmi', 'sysbp', 'diabp']
+    
+    def get_feature_ranges(self):
+        return {
+            'age': (50, 85),
+            'race': ['White', 'Other', 'Black or African American'],
+            'ECOG': [0, 1, 2],
+            'location': ['lymph nodes', 'organ or soft tissue'],
+            'bmi': (18, 50),
+            'sysbp': (85, 180),
+            'diabp': (50, 115),
+        }
+
+class FLChainDataset(BaseDataset):
+
+    def __init__(self, subset='all'):
+        super().__init__(subset=subset)
+        df = pd.read_csv(os.path.join("data", "flchain", "flchain.csv"))
+        df = df[['id'] + self.get_feature_names() + ['t','y']]
+        df['t'] = df['t'] / 5000 # scale
+        if subset != 'all':
+            all_ids = df['id'].unique()
+            # Randomly select a subset of patients
+            gen = np.random.default_rng(0)
+            ids = gen.choice(all_ids, size=subset, replace=False)
+            df = df[df['id'].isin(ids)]
+
+        self.X, self.ts, self.ys = self._extract_data_from_one_dataframe(df)
+    
+    def get_X_ts_ys(self):
+        return self.X, self.ts, self.ys
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def get_feature_names(self):
+        return ['age', 'sex', 'creatinine', 'kappa', 'lambda', 'flc.grp', 'mgus']
+    
+    def get_feature_ranges(self):
+        return {
+            'age': (50, 100),
+            'sex': ['M', 'F'],
+            'creatinine': (0.4, 2.0),
+            'kappa': (0.01, 5.0),
+            'lambda': (0.04, 5.0),
+            'flc.grp': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            'mgus': ['no', 'yes']
+        }
+
+
+class StressStrainDataset(BaseDataset):
+
+    def __init__(self, lot='all', include_lot_as_feature=False, more_samples=0, downsample=True, specimen='all', max_strain=0.3):
+        super().__init__(lot=lot, include_lot_as_feature=include_lot_as_feature, more_samples=more_samples, downsample=downsample, specimen=specimen, max_strain=max_strain)
+        if lot == 'all':
+            path = os.path.join("data", "stress-strain-curves", "T*.csv")
+        else:
+            path = os.path.join("data", "stress-strain-curves", f"T*{lot}*.csv")
+        filenames = glob.glob(path)
+
+        dfs = []
+        for filename in filenames:
+            df = pd.read_csv(filename)
+            dataset_name = filename.split('T_')[1].split('.csv')[0]
+            parts = dataset_name.split('_')
+            temp = parts[0]
+            lot = parts[1]
+            specimen = parts[2]
+            if (self.args.specimen != 'all') and (int(specimen) != self.args.specimen):
+                continue
+            df.columns = ['t', 'y']
+            df.drop(df.tail(1).index,inplace=True) # drop last row because it's an outlier
+            if downsample:
+                df = df.iloc[::3,:] # downsample
+            df['temp'] = float(temp)
+            if include_lot_as_feature:
+                df['lot'] = lot
+            df['id'] = lot + '_' + specimen + '_' + temp
+            df.reset_index(inplace=True)
+            if more_samples > 0:
+                for ind in range(more_samples):
+                    df.loc[ind::more_samples, 'id'] = df.loc[ind::more_samples, 'id'] + '_' + str(ind)
+            dfs.append(df)
+        df = pd.concat(dfs, ignore_index=True)
+        if include_lot_as_feature:
+            df = df[['id', 'temp', 'lot', 't', 'y']]
+        else:
+            df = df[['id', 'temp', 't', 'y']]
+        df.drop(index=df[df['t'] < 0].index, inplace=True) # drop rows where t is < 0
+        df.drop(index=df[df['y'] < 0].index, inplace=True) # drop rows where y is < 0
+        df.drop(index=df[df['t'] > max_strain].index, inplace=True) # drop rows where t is > max_strain
+        df['y'] = df['y'] / 300 # scale
+
+        self.X, self.ts, self.ys = self._extract_data_from_one_dataframe(df)
+
+    def get_X_ts_ys(self):
+        return self.X, self.ts, self.ys
+    
+    def __len__(self):
+        return len(self.X)
+
+    def get_feature_names(self):
+        if self.args.include_lot_as_feature:
+            return ['temp', 'lot']
+        else:
+            return ['temp']
+    
+    def get_feature_ranges(self):
+        if self.args.include_lot_as_feature:
+            return {'temp': (20, 300), 'lot': ['A','B','C','D','E','F','G','H', 'I']}
+        else:
+            return {'temp': (20, 300)}
 
 
 class TacrolimusDataset(BaseDataset):
@@ -104,25 +244,25 @@ class TacrolimusDataset(BaseDataset):
             return {
                 'DOSE': (0, 1),
                 'DV_0': (0, 1),
-                'SEXE': (0, 1),
+                'SEXE': [0,1],
                 'POIDS': (0, 1),
                 'HT': (0, 1),
                 'HB': (0, 1),
                 'CREAT': (0, 1),
-                'CYP': (0, 1),
-                'FORMULATION': (0, 1)
+                'CYP': [0, 1],
+                'FORMULATION': [0, 1]
             }
         else:
             return {
                 'DOSE': (0, 10),
                 'DV_0': (0, 20),
-                'SEXE': (0, 1),
+                'SEXE': [0, 1],
                 'POIDS': (45, 110),
                 'HT': (20, 47),
                 'HB': (6, 16),
                 'CREAT': (60, 830),
-                'CYP': (0, 1),
-                'FORMULATION': (0, 1)
+                'CYP': [0, 1],
+                'FORMULATION': [0, 1]
             }
 
 
