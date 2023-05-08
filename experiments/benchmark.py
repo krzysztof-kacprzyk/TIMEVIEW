@@ -1,3 +1,4 @@
+import copy
 from datetime import datetime
 import os
 import joblib
@@ -25,6 +26,30 @@ from baselines import GAMBenchmark, XGBBenchmark, TTSBenchmark, BaseBenchmark, g
 import argparse
 
 import time
+
+def is_json_serializable(obj):
+    try:
+        json.dumps(obj)
+        return True
+    except (TypeError, OverflowError):
+        return False
+
+
+def make_json_serializable(dictionary):
+    if is_json_serializable(dictionary):
+        return dictionary
+    else:
+        for key, value in dictionary.items():
+            if is_json_serializable(value):
+                continue
+            elif isinstance(value, dict):
+                dictionary[key] = make_json_serializable(value)
+            else:
+                dictionary[key] = {
+                    'class': value.__class__.__name__,
+                    'value': make_json_serializable(value.__dict__) if hasattr(value, '__dict__') else str(value)
+                }
+    return dictionary
 
 def load_column_transformer(timestamp, baseline='TTS', benchmarks_dir='benchmarks'):
     path = os.path.join(benchmarks_dir, timestamp, baseline, 'column_transformer.joblib')
@@ -109,10 +134,43 @@ def run_benchmarks(dataset_name, benchmarks: dict, dataset_split = [0.7,0.15,0.1
     # Save the DataFrame
     df.to_csv(os.path.join(benchmarks_dir, 'summary.csv'))
 
+    # Check if there exists a file summary.json in the benchmarks directory
+    if os.path.exists(os.path.join(benchmarks_dir, 'summary.json')):
+        # Load
+        with open(os.path.join(benchmarks_dir, 'summary.json'), 'r') as f:
+            summary = json.load(f)
+    else:
+        # Create
+        summary = []
+        # Save the summary
+        with open(os.path.join(benchmarks_dir, 'summary.json'), 'w') as f:
+            json.dump(summary, f, indent=4)
+    
+    summary.append(
+        {
+            'timestamp': timestamp,
+            'dataset_name': dataset_name,
+            'n_trials': n_trials,
+            'n_tune': n_tune,
+            'train_size': dataset_split[0],
+            'val_size': dataset_split[1],
+            'seed': seed,
+            'results': {},
+            'notes': ""
+        }
+    )
+
+    # Save the summary
+    with open(os.path.join(benchmarks_dir, 'summary.json'), 'w') as f:
+        json.dump(summary, f, indent=4)
+
+
     # Generate train, validation, and test indices
     train_indices, val_indices, test_indices = generate_indices(len(dataset), dataset_split[0], dataset_split[1], seed=seed)
 
     results = {'name':[],'mean':[],'std':[], 'time_elapsed':[]}
+
+    old_benchmarks_dir = benchmarks_dir
 
     benchmarks_dir = os.path.join(benchmarks_dir, timestamp)
     # Check if the benchmarks directory exists and create it if not
@@ -122,6 +180,11 @@ def run_benchmarks(dataset_name, benchmarks: dict, dataset_split = [0.7,0.15,0.1
     # Save the benchmarks to a pickle file
     with open(os.path.join(benchmarks_dir, 'baselines.pkl'), 'wb') as f:
         pickle.dump(benchmarks, f)
+    # Save the benchmarks as a json file
+    with open(os.path.join(benchmarks_dir, 'baselines.json'), 'w') as f:
+        benchmarks_to_save = copy.deepcopy(benchmarks)
+        json.dump(make_json_serializable(benchmarks_to_save), f, indent=4)
+    
     
     for baseline_name, parameter_dict in benchmarks.items():
         time_start = time.time()
@@ -132,6 +195,12 @@ def run_benchmarks(dataset_name, benchmarks: dict, dataset_split = [0.7,0.15,0.1
         results['mean'].append(np.mean(losses))
         results['std'].append(np.std(losses))
         results['time_elapsed'].append(time_end - time_start)
+
+        summary[-1]['results'][benchmark.name] = {'mean': np.mean(losses), 'std': np.std(losses), 'time_elapsed': time_end - time_start}
+
+        # Save the summary
+        with open(os.path.join(old_benchmarks_dir, 'summary.json'), 'w') as f:
+            json.dump(summary, f, indent=4)
 
     # Create a dataframe with the results
     df = pd.DataFrame(results)
