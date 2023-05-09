@@ -51,6 +51,52 @@ def get_class_by_name(class_name):
     return globals()[class_name]
 
 
+class AirfoilDataset(BaseDataset):
+
+    def __init__(self, log_t=False):
+        super().__init__(log_t=log_t)
+        df = pd.read_csv('data/airfoil/airfoil_self_noise.dat', sep='\t', header=None)
+        df.columns = ['t', 'angle', 'chord', 'velocity', 'thickness', 'y']
+
+        # We need to assign ids
+        df['id'] = 0
+        prev = 10000000
+        curr_id = 0
+        for index, row in df.iterrows():
+            if row['t'] < prev:
+                curr_id += 1
+            prev = row['t']
+            df.at[index, 'id'] = curr_id
+        
+        df = df[['id', 'angle', 'chord', 'velocity', 'thickness', 't', 'y']]
+
+        df['t'] = df['t'] / 200 # scale to min 1
+
+        if log_t:
+            df['t'] = np.log(df['t']) # now it will be in range 0-4.7
+        else:
+            df['t'] = df['t'] / 100 # scale to range 0-1
+
+        self.X, self.ts, self.ys = self._extract_data_from_one_dataframe(df)
+    
+    def get_X_ts_ys(self):
+        return self.X, self.ts, self.ys
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def get_feature_names(self):
+        return ['angle', 'chord', 'velocity', 'thickness']
+    
+    def get_feature_ranges(self):
+        return {
+            'angle': (0, 22),
+            'chord': (0.025, 0.30),
+            'velocity': (31, 71),
+            'thickness': (0.0004, 0.05)
+        }
+
+
 class CelgeneDataset(BaseDataset):
 
     def __init__(self):
@@ -216,7 +262,8 @@ class TacrolimusDataset(BaseDataset):
 
             df.dropna(inplace=True) # drop rows with missing values
 
-            df = df[['visit_id'] + self.get_feature_names() + ['TIME', 'DV']]
+            df = df[['visit_id'] + ['DOSE', 'DV_0', 'SEXE', 'POIDS', 'HT', 'HB', 'CREAT', 'CYP', 'FORMULATION'] + ['TIME', 'DV']]
+
             df.columns = ['id'] + self.get_feature_names() + ['t', 'y']
 
             X, ts, ys = self._extract_data_from_one_dataframe(df)
@@ -237,32 +284,32 @@ class TacrolimusDataset(BaseDataset):
         return len(self.X)
     
     def get_feature_names(self):
-        return ['DOSE', 'DV_0', 'SEXE', 'POIDS', 'HT', 'HB', 'CREAT', 'CYP', 'FORMULATION']
+        return ['DOSE', 'DV_0', 'SEX', 'WEIGHT', 'HT', 'HB', 'CREAT', 'CYP', 'FORM']
     
     def get_feature_ranges(self):
         if self.args.normalize:
             return {
                 'DOSE': (0, 1),
                 'DV_0': (0, 1),
-                'SEXE': [0,1],
-                'POIDS': (0, 1),
+                'SEX': [0,1],
+                'WEIGHT': (0, 1),
                 'HT': (0, 1),
                 'HB': (0, 1),
                 'CREAT': (0, 1),
                 'CYP': [0, 1],
-                'FORMULATION': [0, 1]
+                'FORM': [0, 1]
             }
         else:
             return {
                 'DOSE': (0, 10),
                 'DV_0': (0, 20),
-                'SEXE': [0, 1],
-                'POIDS': (45, 110),
+                'SEX': [0, 1],
+                'WEIGHT': (45, 110),
                 'HT': (20, 47),
                 'HB': (6, 16),
                 'CREAT': (60, 830),
                 'CYP': [0, 1],
-                'FORMULATION': [0, 1]
+                'FORM': [0, 1]
             }
 
 
@@ -364,6 +411,9 @@ class MIMICDataset(BaseDataset):
         df = df[selected_cols]
 
         df.columns = ['id'] + df.columns[1:-2].tolist() + ['t','y']
+
+        # Filter out patients with less than 5 observations
+        df = df.groupby('id').filter(lambda x: len(x) > 4)
 
         X, ts, ys = self._extract_data_from_one_dataframe(df)
 
