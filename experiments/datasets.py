@@ -561,11 +561,8 @@ class TumorDataset(BaseDataset):
 
         df = pd.concat(df_list)
 
-        # Filter only to date 365 (1 year)
-        df = df[df['date'] <= 365.0]
-
-        # Filter only to patients with at least 10 time steps
-        df = df.groupby('name').filter(lambda x: len(x) >= 10)
+        # Filter out duplicate observation times (keep the first one)
+        df = df.groupby(['name', 'date']).first().reset_index()
 
         # Take the log transform of the tumor volume
         def protected_log(x):
@@ -573,18 +570,23 @@ class TumorDataset(BaseDataset):
 
         df['size'] = protected_log(df['size'])
 
-        # Create a new column with the first time step for each patient
         first_time = df.groupby('name')[['date']].min()
+        first_measurements = pd.merge(first_time, df[['name','date','size']], on=['name', 'date'])
+        df = pd.merge(df, first_measurements, on='name', suffixes=('', '_first'))
 
-        # Merge with df to extract size at first time step
-        first_measurements = first_time.merge(df,left_on=['name','date'],right_on=['name','date'])
-        first_measurements.columns = ['name','date_first','size_first']
+        df['t'] = df['date'] - df['date_first']
 
-        # Merge with the original df
-        df = df.merge(first_measurements,on='name',how='left')
+        # Filter only to date 365 (1 year)
+        df = df[df['t'] <= 365.0]
 
-        df = df[['name','date_first','size_first','date','size']]
-        df.columns = ['id','t0','y0','t','y']
+        # Filter only to patients with at least 10 time steps
+        df = df.groupby('name').filter(lambda x: len(x) >= 10)
+
+        df['t'] = df['t'] / 365.0
+
+
+        df = df[['name','size_first','t','size']]
+        df.columns = ['id','y0','t','y']
 
         self.X, self.ts, self.ys = self._extract_data_from_one_dataframe(df)
 
@@ -597,12 +599,11 @@ class TumorDataset(BaseDataset):
     
     def get_feature_ranges(self):
         return {
-            't0': (1, 150),
-            'y0': (-3, 9),
+            'y0': (-3, 8),
         }
     
     def get_feature_names(self):
-        return ['t0','y0']
+        return ['y0']
 
 
 class SyntheticTumorDataset(BaseDataset):

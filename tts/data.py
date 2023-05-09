@@ -83,7 +83,7 @@ class BaseDataset(ABC):
                 df_id.iloc[[0], 1:-2])
             # print(X)
             df_id.sort_values(by='t', inplace=True)
-            ts.append(df_id['t'].sort_values().values.reshape(-1))
+            ts.append(df_id['t'].values.reshape(-1))
             ys.append(df_id['y'].values.reshape(-1))
         X = pd.concat(X, axis=0, ignore_index=True)
         return X, ts, ys

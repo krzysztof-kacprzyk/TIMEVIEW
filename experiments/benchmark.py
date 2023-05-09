@@ -86,12 +86,46 @@ def create_benchmark_datasets_if_not_exist(dataset_description_path='dataset_des
         'dataset_builder': 'TumorDataset',
         'dataset_dictionary': {}
         },
+        # {
+        # 'dataset_name': 'mimic_0.1',
+        # 'dataset_builder': 'MIMICDataset',
+        # 'dataset_dictionary': {
+        #     'subset': 0.1,
+        #     'seed': 0}
+        # }
         {
-        'dataset_name': 'mimic_0.1',
-        'dataset_builder': 'MIMICDataset',
-        'dataset_dictionary': {
-            'subset': 0.1,
-            'seed': 0}
+            'dataset_name': 'airfoil_log',
+            'dataset_builder': 'AirfoilDataset',
+            'dataset_dictionary': {"log_t": True}
+        },
+        {
+            'dataset_name': 'celgene',
+            'dataset_builder': 'CelgeneDataset',
+            'dataset_dictionary': {} 
+        },
+        {
+            'dataset_name': 'flchain_1000',
+            'dataset_builder': 'FLChainDataset',
+            'dataset_dictionary': {"subset": 1000}
+        },
+        {
+            'dataset_name': 'stress-strain-lot-max-0.2',
+            'dataset_builder': 'StressStrainDataset',
+            "dataset_dictionary": {
+                "lot": "all",
+                "include_lot_as_feature": True,
+                "downsample": True,
+                "more_samples": 0,
+                "specimen": "all",
+                "max_strain": 0.2}
+        },
+        {
+            'dataset_name': 'tacrolimus_visit_12',
+            'dataset_builder': 'TacrolimusDataset',
+            'dataset_dictionary': {
+                "granularity": "visit",
+                "normalize": False,
+                "max_t": 12.5}
         }
     ]
 
@@ -278,6 +312,9 @@ if __name__ == "__main__":
     parser.add_argument('--n_trials', type=int, default=1, help='Number of trials to run.')
     parser.add_argument('--n_tune', type=int, default=1, help='Number of tuning trials to run.')
     parser.add_argument('--seed', type=int, default=0, help='Random seed.')
+    parser.add_argument('--n_basis', type=int, default=5, help='Number of basis functions to use for TTS')
+    parser.add_argument('--device', type=str, default='gpu', help='Device to run on.')
+    parser.add_argument('--validate', action='store_true', help='Whether to validate first', default=False)
 
     args = parser.parse_args()
 
@@ -300,50 +337,72 @@ if __name__ == "__main__":
         'dataset_description_path': dataset_description_path
     }
 
-    # Synthetic tumor Wilkerson 1
-    if "synthetic_tumor_wilkerson_1" in dataset_names:
-        dataset_name = 'synthetic_tumor_wilkerson_1'
+    tts_T = {
+        'synthetic_tumor_wilkerson_1': 1.0,
+        'tumor': 1.0,
+        'airfoil_log': 4.7,
+        'celgene': 1.0,
+        'flchain_1000': 1.0,
+        'stress-strain-lot-max-0.2': 1.0,
+        'tacrolimus_visit_12': 12.5
+    }
+
+    tts_n_features = {
+        'synthetic_tumor_wilkerson_1': 4,
+        'tumor': 1,
+        'airfoil_log': 4,
+        'celgene': 11,
+        'flchain_1000': 16,
+        'stress-strain-lot-max-0.2': 10,
+        'tacrolimus_visit_12': 9
+    }
+
+    if args.validate:
+
+        print('Validating benchmarks...')
+
+        validate_benchmark_options = {
+            'n_trials': 1,
+            'n_tune': 1,
+            'seed': global_seed,
+            'dataset_split': [0.7,0.15,0.15],
+            'benchmarks_dir': benchmarks_dir,
+            'dataset_description_path': dataset_description_path
+        }
+
+        for dataset_name in dataset_names:
+
+            print('Running validation on dataset: {}'.format(dataset_name))
+
+            benchmarks = {}
+
+            if 'TTS' in args.baselines:
+                tts_config = Config(n_features=tts_n_features[dataset_name], n_basis=args.n_basis, T=tts_T[dataset_name], seed=global_seed, dataloader_type='tensor', num_epochs=1000, device='gpu')
+                benchmarks['TTS'] = {'config': tts_config}
+            if 'XGB' in args.baselines:
+                benchmarks['XGB'] = {}
+            if 'GAM' in args.baselines:
+                benchmarks['GAM'] = {}
+
+            run_benchmarks(dataset_name, benchmarks, **validate_benchmark_options)
+        
+        print('Validation complete.')
+
+    print('Running benchmarks...')
+
+    for dataset_name in dataset_names:
+
+        print('Running benchmarks on dataset: {}'.format(dataset_name))
 
         benchmarks = {}
 
+        if 'TTS' in args.baselines:
+            tts_config = Config(n_features=tts_n_features[dataset_name], n_basis=args.n_basis, T=tts_T[dataset_name], seed=global_seed, dataloader_type='tensor', num_epochs=1000, device='gpu')
+            benchmarks['TTS'] = {'config': tts_config}
         if 'XGB' in args.baselines:
             benchmarks['XGB'] = {}
         if 'GAM' in args.baselines:
             benchmarks['GAM'] = {}
-        if 'TTS' in args.baselines:
-            tts_config = Config(n_features=4, n_basis=5, T=1, seed=global_seed, dataloader_type='iterative', num_epochs=400, device='gpu')
-            benchmarks['TTS'] = {'config': tts_config}
-
-        run_benchmarks(dataset_name, benchmarks, **benchmark_options)
-
-    if 'tumor' in dataset_names:
-        dataset_name = 'tumor'
-
-        benchmarks = {}
-
-        if 'XGB' in args.baselines:
-            benchmarks['XGB'] = {}
-        if 'GAM' in args.baselines:
-            benchmarks['GAM'] = {}
-        if 'TTS' in args.baselines:
-            tts_config = Config(n_features=2, n_basis=5, T=365, seed=global_seed, dataloader_type='iterative', num_epochs=400, device='gpu')
-            benchmarks['TTS'] = {'config': tts_config}
-
-        run_benchmarks(dataset_name, benchmarks, **benchmark_options)
-
-
-    if 'mimic_0.1' in dataset_names:
-        dataset_name = 'mimic_0.1'
-
-        benchmarks = {}
-
-        if 'XGB' in args.baselines:
-            benchmarks['XGB'] = {}
-        if 'GAM' in args.baselines:
-            benchmarks['GAM'] = {}
-        if 'TTS' in args.baselines:
-            tts_config = Config(n_features=43, n_basis=5, T=18, seed=global_seed, dataloader_type='tensor', num_epochs=400, device='gpu')
-            benchmarks['TTS'] = {'config': tts_config}
 
         run_benchmarks(dataset_name, benchmarks, **benchmark_options)
 
