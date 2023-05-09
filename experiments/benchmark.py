@@ -405,6 +405,8 @@ if __name__ == "__main__":
             if 'RNN' in args.baselines:
                 rnn_config = RNNConfig(args.rnn_type, n_features=tts_n_features[dataset_name], seed=global_seed, max_len=rnn_max_len[dataset_name], num_epochs=1000, device=args.device)
                 benchmarks['RNN'] = {'config': rnn_config}
+            if 'SINDy' in args.baselines:
+                benchmarks['SINDy'] = {}
 
             run_benchmarks(dataset_name, benchmarks, **validate_benchmark_options)
         
@@ -430,6 +432,8 @@ if __name__ == "__main__":
         if 'RNN' in args.baselines:
             rnn_config = RNNConfig(args.rnn_type, n_features=tts_n_features[dataset_name], seed=global_seed, max_len=rnn_max_len[dataset_name], num_epochs=1000, device=args.device)
             benchmarks['RNN'] = {'config': rnn_config}
+        if 'SINDy' in args.baselines:
+            benchmarks['SINDy'] = {}
 
 
         run_benchmarks(dataset_name, benchmarks, **benchmark_options)

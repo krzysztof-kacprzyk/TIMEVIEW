@@ -419,9 +419,9 @@ class SINDyBenchmark(BaseBenchmark):
             if self.fitted:
                 return self.results # We can do it because the algorithm is deterministic
 
-        print("Fitting model")
+        # print("Fitting model")
         model.fit(self.ys_train, t=self.ts_train,u=self.X_train, multiple_trajectories=True)
-        print("Model fitted")
+        # print("Model fitted")
 
         # Save the model to a pickle file
         if tuning:
