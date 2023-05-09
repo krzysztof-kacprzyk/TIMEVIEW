@@ -316,7 +316,7 @@ if __name__ == "__main__":
     parser.add_argument('--n_basis', type=int, default=5, help='Number of basis functions to use for TTS')
     parser.add_argument('--device', type=str, default='gpu', help='Device to run on.')
     parser.add_argument('--validate', action='store_true', help='Whether to validate first', default=False)
-    parser.add_argument('--rnn_type', type=str, options=['lstm', 'rnn'], default='lstm', help='RNN type to use')
+    parser.add_argument('--rnn_type', type=str, choices=['lstm', 'rnn'], default='lstm', help='RNN type to use')
 
     args = parser.parse_args()
 
@@ -331,7 +331,7 @@ if __name__ == "__main__":
 
     notes = f"n_basis={args.n_basis},rnn_type={args.rnn_type}"
 
-    if n_basis == 0:
+    if args.n_basis == 0:
         n_basis_tunable = True
     else:
         n_basis_tunable = False
