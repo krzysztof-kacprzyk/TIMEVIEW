@@ -122,7 +122,7 @@ class TuningConfig(Config):
             'weight_decay', 1e-6, 1e-1, log=True)
         
         if n_basis_tunable:
-            n_basis = trial.suggest_int('n_basis', 5, 20)
+            n_basis = trial.suggest_int('n_basis', 5, 16)
 
         encoder = {
             'hidden_sizes': hidden_sizes,
