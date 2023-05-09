@@ -14,6 +14,8 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, OneHotEncoder
 from interpret.glassbox import ExplainableBoostingRegressor
 from xgboost import XGBRegressor
+import pysindy as ps
+from scipy.integrate import odeint
 
 # from tts.training import training
 # from tts.tuning import tuning
@@ -302,6 +304,197 @@ class MeanBenchmark(BaseBenchmark):
 
         return {'train_loss': train_loss, 'val_loss': val_loss, 'test_loss': test_loss}
 
+
+class SINDyBenchmark(BaseBenchmark):
+    """SINDy benchmark."""
+    def __init__(self):
+        super().__init__()
+        self.fitted = False
+    
+    def get_name(self):
+        return 'SINDy'
+    
+    def get_model_for_tuning(self, trial, seed):
+        """Get model for tuning."""
+        
+        optimizer_threshold = trial.suggest_float('optimizer_threshold', 1e-3, 1e-1, log=True)
+        optimizer = ps.STLSQ(threshold=optimizer_threshold)
+
+        differentiation_kind = trial.suggest_categorical('differentiation_kind', ['finite_difference', 'spline', 'trend_filtered'])
+        if differentiation_kind == 'finite_difference':
+            k = trial.suggest_int('k', 1, 5)
+            differentiation_method = ps.SINDyDerivative(kind='finite_difference', k=k)
+        elif differentiation_kind == 'spline':
+            s = trial.suggest_float('s', 1e-3, 1, log=True)
+            differentiation_method = ps.SINDyDerivative(kind='spline', s=s)
+        elif differentiation_kind == 'trend_filtered':
+            order = trial.suggest_int('order', 0, 2)
+            alpha = trial.suggest_float('alpha', 1e-4, 1, log=True)
+            differentiation_method = ps.SINDyDerivative(kind='trend_filtered', order=order, alpha=alpha)
+        elif differentiation_kind == 'smoothed_finite_difference':
+            window_length = trial.suggest_int('window_length', 1, 5)
+            differentiation_method = ps.SmoothedFiniteDifference(smoother_kws={"window_length":window_length})
+        
+        lib_poly = ps.PolynomialLibrary(degree=2, include_interaction=True, include_bias=True)
+
+        model = ps.SINDy(optimizer=optimizer, differentiation_method=differentiation_method, feature_library=lib_poly)
+
+        return model
+
+    def get_final_model(self, parameters, seed):
+        """Get model for testing."""
+        if parameters is None:
+            return ps.SINDy(optimizer=ps.STLSQ(threshold=1e-3), differentiation_method=ps.SINDyDerivative(kind='finite_difference', k=2), feature_library=ps.PolynomialLibrary(degree=2, include_interaction=True, include_bias=True))
+        else:
+            optimizer_threshold = parameters['optimizer_threshold']
+            optimizer = ps.STLSQ(threshold=optimizer_threshold)
+            differentiation_kind = parameters['differentiation_kind']
+            if differentiation_kind == 'finite_difference':
+                k = parameters['k']
+                differentiation_method = ps.SINDyDerivative(kind='finite_difference', k=k)
+            elif differentiation_kind == 'spline':
+                s = parameters['s']
+                differentiation_method = ps.SINDyDerivative(kind='spline', s=s)
+            elif differentiation_kind == 'trend_filtered':
+                order = parameters['order']
+                alpha = parameters['alpha']
+                differentiation_method = ps.SINDyDerivative(kind='trend_filtered', order=order, alpha=alpha)
+            elif differentiation_kind == 'smoothed_finite_difference':
+                window_length = parameters['window_length']
+                differentiation_method = ps.SmoothedFiniteDifference(smoother_kws={"window_length":window_length})
+            lib_poly = ps.PolynomialLibrary(degree=2, include_interaction=True, include_bias=True)
+            return ps.SINDy(optimizer=optimizer, differentiation_method=differentiation_method, feature_library=lib_poly)
+    
+    def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
+        
+        X, ts, ys = dataset.get_X_ts_ys()
+
+        # Fit the transformer
+        column_transformer = dataset.get_default_column_transformer()
+        y_normalizer = YNormalizer()
+
+        column_transformer.fit(X.iloc[train_indices,:])
+        y_normalizer.fit([ys[i] for i in train_indices])
+
+        self.X_train = []
+        self.ts_train = [ts[i] for i in train_indices]
+        self.ys_train = y_normalizer.transform([ys[i] for i in train_indices])
+
+        self.X_val = []
+        self.ts_val = [ts[i] for i in val_indices]
+        self.ys_val = y_normalizer.transform([ys[i] for i in val_indices])
+
+        self.X_test = []
+        self.ts_test = [ts[i] for i in test_indices]
+        self.ys_test = y_normalizer.transform([ys[i] for i in test_indices])
+
+        for i in train_indices:
+            num_measurements = len(ys[i])
+            features = column_transformer.transform(X.iloc[[i],:])
+            features = np.tile(features, (num_measurements, 1))
+            self.X_train.append(features)
+        
+        for i in val_indices:
+            num_measurements = len(ys[i])
+            features = column_transformer.transform(X.iloc[[i],:])
+            features = np.tile(features, (num_measurements, 1))
+            self.X_val.append(features)
+
+        for i in test_indices:
+            num_measurements = len(ys[i])
+            features = column_transformer.transform(X.iloc[[i],:])
+            features = np.tile(features, (num_measurements, 1))
+            self.X_test.append(features)
+
+        # Save the transformer using joblib
+        os.makedirs(os.path.join(self.benchmarks_dir, self.name), exist_ok=True)
+        joblib.dump(column_transformer, os.path.join(self.benchmarks_dir, self.name, 'column_transformer.joblib'))
+
+        # Save y_normalizer
+        y_normalizer.save(os.path.join(self.benchmarks_dir, self.name))
+    
+    def train(self, model, tuning=False):
+        """Train model."""
+        if not tuning:
+            if self.fitted:
+                return self.results # We can do it because the algorithm is deterministic
+
+        print("Fitting model")
+        model.fit(self.ys_train, t=self.ts_train,u=self.X_train, multiple_trajectories=True)
+        print("Model fitted")
+
+        # Save the model to a pickle file
+        if tuning:
+            log_dir = os.path.join(self.benchmarks_dir, self.name, 'tuning', 'logs')
+        else:
+            log_dir =  os.path.join(self.benchmarks_dir, self.name, 'final', 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+
+        if not tuning:
+            with open(os.path.join(log_dir, 'model.pkl'), 'wb') as f:
+                pickle.dump(model, f)
+
+        def get_control_function(X):
+
+            def u(t):
+                return X[0,:]
+
+            return u
+        
+        # train_losses = []
+        # for X, t, y in zip(self.X_train, self.ts_train, self.ys_train):
+        #     u = get_control_function(X)
+        #     y_pred = model.simulate(y[[0]], t=t, u=u)
+        #     train_losses.append(mean_squared_error(y, y_pred))
+        # train_loss = np.mean(train_losses)
+        train_loss = 0
+
+        val_loss = 0
+        if tuning:
+            val_losses = []
+            for X, t, y in zip(self.X_val, self.ts_val, self.ys_val):
+                try:
+                    # control_input = X[[0],:]
+                    # def dydt(yt,t):
+                    #     # print(yt.shape)
+                    #     res = model.predict(yt.reshape(1,1),u=control_input).flatten()
+                    #     print(res)
+                    #     return res
+                    # y_pred = odeint(dydt, y[0], t)
+                    # print("Simulating")
+                    u = get_control_function(X)
+                    y_pred = model.simulate(y[[0]], t=t, u=u, integrator='odeint')
+                except Exception as e:
+                    print(e)
+                    y_pred = np.zeros_like(y)
+                val_losses.append(mean_squared_error(y, y_pred))
+            val_loss = np.mean(val_losses)
+        
+        test_loss = 0
+        if not tuning:
+            test_losses = []
+            for X, t, y in zip(self.X_test, self.ts_test, self.ys_test):
+                try:
+                    # control_input = X[[0],:]
+                    # def dydt(yt,t):
+                    #     # print(yt.shape)
+                    #     res = model.predict(yt.reshape(1,1),u=control_input).flatten()
+                    #     print(res.shape)
+                    #     return model.predict(yt.reshape(1,1),u=control_input).flatten()
+                    # y_pred = odeint(dydt, y[0], t)
+                    u = get_control_function(X)
+                    y_pred = model.simulate(y[[0]], t=t, u=u, integrator='odeint')
+                except Exception as e:
+                    print(e)
+                    y_pred = np.zeros_like(y)
+                test_losses.append(mean_squared_error(y, y_pred))
+            test_loss = np.mean(test_losses)
+        if not tuning:
+            self.fitted = True
+            self.results = {'train_loss': train_loss, 'val_loss': val_loss, 'test_loss': test_loss}
+        return {'train_loss': train_loss, 'val_loss': val_loss, 'test_loss': test_loss}
+
+
 class GAMBenchmark(BaseBenchmark):
     """GAM benchmark."""
     
@@ -381,8 +574,9 @@ class GAMBenchmark(BaseBenchmark):
         else:
             log_dir =  os.path.join(self.benchmarks_dir, self.name, 'final', 'logs', f'seed_{model.random_state}')
         os.makedirs(log_dir, exist_ok=True)
-        with open(os.path.join(log_dir, 'model.pkl'), 'wb') as f:
-            pickle.dump(model, f)
+        if not tuning:
+            with open(os.path.join(log_dir, 'model.pkl'), 'wb') as f:
+                pickle.dump(model, f)
 
         train_loss = mean_squared_error(y_train, model.predict(X_train))
         val_loss = mean_squared_error(self.y_val, model.predict(self.X_val))
@@ -478,8 +672,9 @@ class XGBBenchmark(BaseBenchmark):
         else:
             log_dir =  os.path.join(self.benchmarks_dir, self.name, 'final', 'logs', f'seed_{model.random_state}')
         os.makedirs(log_dir, exist_ok=True)
-        with open(os.path.join(log_dir, 'model.pkl'), 'wb') as f:
-            pickle.dump(model, f)
+        if not tuning:
+            with open(os.path.join(log_dir, 'model.pkl'), 'wb') as f:
+                pickle.dump(model, f)
 
 
         train_loss = mean_squared_error(y_train, model.predict(X_train))
@@ -650,8 +845,10 @@ class TTSBenchmark(BaseBenchmark):
 
         # Save config as a pickle file
         config = model.config
-        with open(os.path.join(log_dir, 'config.pkl'), 'wb') as f:
-            pickle.dump(config, f)
+
+        if not tuning:
+            with open(os.path.join(log_dir, 'config.pkl'), 'wb') as f:
+                pickle.dump(config, f)
         
 
         

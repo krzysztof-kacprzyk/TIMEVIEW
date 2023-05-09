@@ -376,7 +376,7 @@ def advanced_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize
 
 
     
-    plt.title("y = tts(t)")
+    # plt.title("y = tts(t)")
     plt.xlim(0, time_horizon)
     plt.ylim(trajectory_range[0], trajectory_range[1])
     plt.xlabel('t')
@@ -697,6 +697,18 @@ def expert_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(
                     update_bar_plot(second_ax, [],[],[])
                     second_line.set_data(x_values, y_values)
                     second_scat.set_offsets(np.c_[[curr_x],[curr_y]])
+
+                    xmin, xmax = second_ax.get_xlim()
+                    step = (xmax - xmin) / 3
+
+                    # Create the ticks and labels
+                    ticks = np.arange(xmin, xmax + step, step)
+                    labels = [f'{tick:.2f}' for tick in ticks]
+
+                    # Set the ticks and labels
+                    second_ax.set_xticks(ticks)
+                    second_ax.set_xticklabels(labels)
+                
 
                 elif feature_types[x_axis] == 'categorical' or feature_types[x_axis] == 'binary':
 

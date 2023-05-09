@@ -50,6 +50,28 @@ def get_class_by_name(class_name):
     """
     return globals()[class_name]
 
+class ExponentialDataset(BaseDataset):
+
+    def __init__(self, log_t=False):
+        super().__init__(log_t=log_t)
+        self.X = pd.DataFrame({'x':np.linspace(0,1,100)})
+        self.ts = [np.linspace(0,1,20) for i in range(100)]
+        self.ys = [np.exp(t*x) for t, x in zip(self.ts, self.X['x'])]
+    
+    def get_X_ts_ys(self):
+        return self.X, self.ts, self.ys
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def get_feature_names(self):
+        return ['x']
+    
+    def get_feature_ranges(self):
+        return {
+            'x': (0, 1)
+        }
+
 
 class AirfoilDataset(BaseDataset):
 
