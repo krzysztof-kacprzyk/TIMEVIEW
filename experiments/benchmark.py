@@ -383,6 +383,8 @@ if __name__ == "__main__":
                 benchmarks['XGB'] = {}
             if 'GAM' in args.baselines:
                 benchmarks['GAM'] = {}
+            if 'Mean' in args.baselines:
+                benchmarks['Mean'] = {}
 
             run_benchmarks(dataset_name, benchmarks, **validate_benchmark_options)
         
@@ -403,6 +405,8 @@ if __name__ == "__main__":
             benchmarks['XGB'] = {}
         if 'GAM' in args.baselines:
             benchmarks['GAM'] = {}
+        if 'Mean' in args.baselines:
+            benchmarks['Mean'] = {}
 
         run_benchmarks(dataset_name, benchmarks, **benchmark_options)
 
