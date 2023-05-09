@@ -22,6 +22,7 @@ import pytorch_lightning as pl
 import torch
 from datasets import load_dataset, save_dataset
 from baselines import GAMBenchmark, XGBBenchmark, TTSBenchmark, BaseBenchmark, get_baseline
+from baseline_implementations.rnn.config import RNNConfig
 
 import argparse
 
@@ -141,7 +142,7 @@ def create_benchmark_datasets_if_not_exist(dataset_description_path='dataset_des
             save_dataset(**dataset, dataset_description_path=dataset_description_path)
 
             
-def run_benchmarks(dataset_name, benchmarks: dict, dataset_split = [0.7,0.15,0.15], n_trials=10, n_tune=100, seed=0, benchmarks_dir='benchmarks', dataset_description_path='dataset_descriptions'):
+def run_benchmarks(dataset_name, benchmarks: dict, dataset_split = [0.7,0.15,0.15], n_trials=10, n_tune=100, seed=0, benchmarks_dir='benchmarks', dataset_description_path='dataset_descriptions', notes=''):
     """
     Runs a set of benchmarks on a dataset
     Args:
@@ -190,7 +191,7 @@ def run_benchmarks(dataset_name, benchmarks: dict, dataset_split = [0.7,0.15,0.1
             'val_size': dataset_split[1],
             'seed': seed,
             'results': {},
-            'notes': ""
+            'notes': notes
         }
     )
 
@@ -315,6 +316,7 @@ if __name__ == "__main__":
     parser.add_argument('--n_basis', type=int, default=5, help='Number of basis functions to use for TTS')
     parser.add_argument('--device', type=str, default='gpu', help='Device to run on.')
     parser.add_argument('--validate', action='store_true', help='Whether to validate first', default=False)
+    parser.add_argument('--rnn_type', type-str, options=['lstm', 'rnn'], default='lstm', help='RNN type to use')
 
     args = parser.parse_args()
 
@@ -327,6 +329,13 @@ if __name__ == "__main__":
 
     dataset_names = args.datasets
 
+    notes = f"n_basis={args.n_basis},rnn_type={args.rnn_type}"
+
+    if n_basis == 0:
+        n_basis_tunable = True
+    else:
+        n_basis_tunable = False
+
 
     benchmark_options = {
         'n_trials': args.n_trials,
@@ -334,7 +343,8 @@ if __name__ == "__main__":
         'seed': global_seed,
         'dataset_split': [0.7,0.15,0.15],
         'benchmarks_dir': benchmarks_dir,
-        'dataset_description_path': dataset_description_path
+        'dataset_description_path': dataset_description_path,
+        'notes': notes,
     }
 
     tts_T = {
@@ -357,6 +367,11 @@ if __name__ == "__main__":
         'tacrolimus_visit_12': 9
     }
 
+    rnn_max_len = {
+        'synthetic_tumor_wilkerson_1': 20,
+        'flchain_1000': 20,
+    }
+
     if args.validate:
 
         print('Validating benchmarks...')
@@ -367,7 +382,8 @@ if __name__ == "__main__":
             'seed': global_seed,
             'dataset_split': [0.7,0.15,0.15],
             'benchmarks_dir': benchmarks_dir,
-            'dataset_description_path': dataset_description_path
+            'dataset_description_path': dataset_description_path,
+            'notes': notes,
         }
 
         for dataset_name in dataset_names:
@@ -377,7 +393,7 @@ if __name__ == "__main__":
             benchmarks = {}
 
             if 'TTS' in args.baselines:
-                tts_config = Config(n_features=tts_n_features[dataset_name], n_basis=args.n_basis, T=tts_T[dataset_name], seed=global_seed, dataloader_type='tensor', num_epochs=1000, device='gpu')
+                tts_config = Config(n_features=tts_n_features[dataset_name], n_basis=args.n_basis, T=tts_T[dataset_name], seed=global_seed, dataloader_type='tensor', num_epochs=1000, device=args.device, n_basis_tunable=n_basis_tunable, dynamic_bias=True)
                 benchmarks['TTS'] = {'config': tts_config}
             if 'XGB' in args.baselines:
                 benchmarks['XGB'] = {}
@@ -385,6 +401,9 @@ if __name__ == "__main__":
                 benchmarks['GAM'] = {}
             if 'Mean' in args.baselines:
                 benchmarks['Mean'] = {}
+            if 'RNN' in args.baselines:
+                rnn_config = RNNConfig(args.rnn_type, n_features=tts_n_features[dataset_name], seed=global_seed, max_len=rnn_max_len[dataset_name], num_epochs=1000, device=args.device)
+                benchmarks['RNN'] = {'config': rnn_config}
 
             run_benchmarks(dataset_name, benchmarks, **validate_benchmark_options)
         
@@ -399,7 +418,7 @@ if __name__ == "__main__":
         benchmarks = {}
 
         if 'TTS' in args.baselines:
-            tts_config = Config(n_features=tts_n_features[dataset_name], n_basis=args.n_basis, T=tts_T[dataset_name], seed=global_seed, dataloader_type='tensor', num_epochs=1000, device='gpu')
+            tts_config = Config(n_features=tts_n_features[dataset_name], n_basis=args.n_basis, T=tts_T[dataset_name], seed=global_seed, dataloader_type='tensor', num_epochs=1000, device=args.device, n_basis_tunable=n_basis_tunable, dynamic_bias=True)
             benchmarks['TTS'] = {'config': tts_config}
         if 'XGB' in args.baselines:
             benchmarks['XGB'] = {}
@@ -407,6 +426,10 @@ if __name__ == "__main__":
             benchmarks['GAM'] = {}
         if 'Mean' in args.baselines:
             benchmarks['Mean'] = {}
+        if 'RNN' in args.baselines:
+            rnn_config = RNNConfig(args.rnn_type, n_features=tts_n_features[dataset_name], seed=global_seed, max_len=rnn_max_len[dataset_name], num_epochs=1000, device=args.device)
+            benchmarks['RNN'] = {'config': rnn_config}
+
 
         run_benchmarks(dataset_name, benchmarks, **benchmark_options)
 
