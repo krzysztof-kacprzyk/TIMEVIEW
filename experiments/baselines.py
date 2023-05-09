@@ -26,6 +26,9 @@ from tts.knot_selection import calculate_knot_placement
 import pytorch_lightning as pl
 import torch
 
+from baseline_implementations.rnn.config import RNNConfig, RNNTuningConfig
+from baseline_implementations.rnn.lit_module import LitRNN
+
 def get_baseline(name, parameter_dict=None):
     class_name = name + 'Benchmark'
     return globals()[class_name](**parameter_dict)
@@ -692,6 +695,199 @@ class TTSBenchmark(BaseBenchmark):
         val_dataloader = create_dataloader(model.config, val_dataset, None, shuffle=False)
         test_dataloader = create_dataloader(model.config, test_dataset, None, shuffle=False)
     
+
+        trainer.fit(
+        model=model,
+        train_dataloaders=train_dataloader,
+        val_dataloaders=val_dataloader)
+
+        print(f"Finished after {trainer.current_epoch} epochs.")
+
+        train_loss = trainer.logged_metrics['train_loss']
+        print(f"train_loss: {train_loss}")
+        val_loss = early_stop_callback.best_score
+        test_loss = 0
+
+        if not tuning:
+            results = trainer.test(model=model, dataloaders=test_dataloader)
+            test_loss = results[0]['test_loss']
+
+        return {'train_loss': train_loss, 'val_loss': val_loss, 'test_loss': test_loss}
+    
+
+
+class RNNBenchmark(BaseBenchmark):
+    """RNN benchmark."""
+
+    def __init__(self, config):
+        self.config = config
+        super().__init__()
+
+    def get_name(self):
+        return 'RNN'
+    
+    def get_model_for_tuning(self, trial, seed):
+        """Get model for tuning."""
+        config = RNNTuningConfig(
+                            trial,
+                            decoder_type=self.config.decoder_type,
+                            n_features=self.config.n_features,
+                            max_len = self.config.max_len,
+                            seed=self.config.seed,
+                            device=self.config.device,
+                            num_epochs=self.config.num_epochs)
+        litmodel = LitRNN(config)
+        tuning_callback = PyTorchLightningPruningCallback(trial, monitor='val_loss')
+        return (litmodel, tuning_callback)
+       
+    def get_final_model(self, parameters, seed):
+        """Get model for testing."""
+        if parameters is not None:
+            encoder = {
+                'hidden_sizes': [parameters[f'hidden_size_{i}'] for i in range(3)],
+                'activation': parameters['activation'],
+                'dropout_p': parameters['dropout_p']
+            }
+            decoder = {
+                'input_dim': parameters['hidden_size_2'],
+                'hidden_dim': parameters['decoder_hidden_dim'],
+                'output_dim': 1,
+                'num_layers': parameters['decoder_num_layers'],
+                'dropout_p': parameters['decoder_dropout_p']
+            }
+            training = {
+                'optimizer': 'adam',
+                'batch_size': parameters['batch_size'],
+                'lr': parameters['lr'],
+                'weight_decay': parameters['weight_decay'],
+            }
+
+            config = RNNConfig(decoder_type=self.config.decoder_type,
+                            n_features=self.config.n_features,
+                            seed=seed,
+                            max_len=self.config.max_len,
+                            encoder=encoder,
+                            decoder=decoder,
+                            training=training,
+                            device=self.config.device,
+                            num_epochs=self.config.num_epochs
+                            )
+        else:
+            config = self.config
+
+        litmodel = LitRNN(config)
+        return litmodel
+
+    def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
+        X, ts, ys = dataset.get_X_ts_ys()
+
+        # Check if every y has the same number of elements
+        y_lengths = [len(y) for y in ys]
+        if not all([self.config.max_len == y_length for y_length in y_lengths]):
+            raise ValueError("All y values must have the same length if you want to use RNN. Same as max_len parameter of RNN.")
+
+        self.X_train = X.iloc[train_indices,:]
+        self.ts_train = [ts[i] for i in train_indices]
+        self.ys_train = [ys[i] for i in train_indices]
+        self.X_val = X.iloc[val_indices,:]
+        self.ts_val = [ts[i] for i in val_indices]
+        self.ys_val = [ys[i] for i in val_indices]
+        self.X_test = X.iloc[test_indices,:]
+        self.ts_test = [ts[i] for i in test_indices]
+        self.ys_test = [ys[i] for i in test_indices]
+
+        # Transform the data
+        transformer = dataset.get_default_column_transformer()
+        y_normalizer = YNormalizer()
+
+        self.X_train = transformer.fit_transform(self.X_train)
+        self.ys_train = y_normalizer.fit_transform(self.ys_train)
+
+        self.X_val = transformer.transform(self.X_val)
+        self.ys_val = y_normalizer.transform(self.ys_val)
+        self.X_test = transformer.transform(self.X_test)
+        self.ys_test = y_normalizer.transform(self.ys_test)
+
+        # Save the transformer using joblib
+        os.makedirs(os.path.join(self.benchmarks_dir, self.name), exist_ok=True)
+        joblib.dump(transformer, os.path.join(self.benchmarks_dir, self.name, 'column_transformer.joblib'))
+
+        # Save y_normalizer
+        y_normalizer.save(os.path.join(self.benchmarks_dir, self.name))
+
+        self.train_dataset = torch.utils.data.TensorDataset(torch.tensor(self.X_train, dtype=torch.float32),torch.stack([torch.tensor(y, dtype=torch.float32) for y in self.ys_train], dim=0))
+        self.val_dataset = torch.utils.data.TensorDataset(torch.tensor(self.X_val, dtype=torch.float32),torch.stack([torch.tensor(y, dtype=torch.float32) for y in self.ys_val], dim=0))
+        self.test_dataset = torch.utils.data.TensorDataset(torch.tensor(self.X_test, dtype=torch.float32),torch.stack([torch.tensor(y, dtype=torch.float32) for y in self.ys_test], dim=0))
+        
+
+    def train(self, model, tuning=False):
+        """Train model."""
+        if tuning:
+            tuning_callback = model[1]
+            model = model[0]
+            log_dir = os.path.join(self.benchmarks_dir, self.name, 'tuning', 'logs', f'seed_{model.config.seed}')
+        else:
+            log_dir =  os.path.join(self.benchmarks_dir, self.name, 'final', 'logs', f'seed_{model.config.seed}')
+
+        train_dataset = self.train_dataset
+        val_dataset = self.val_dataset
+        test_dataset = self.test_dataset
+
+        tb_logger = pl.loggers.TensorBoardLogger(save_dir=log_dir)
+
+        # Create folder if does not exist
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+
+        # Save config as a pickle file
+        config = model.config
+        with open(os.path.join(log_dir, 'config.pkl'), 'wb') as f:
+            pickle.dump(config, f)
+        
+
+        # create callbacks
+        best_val_checkpoint = pl.callbacks.ModelCheckpoint(
+            monitor='val_loss',
+            mode='min',
+            save_top_k=1,
+            filename='best_val'
+        )
+        # added early stopping callback, if validation loss does not improve over 10 epochs -> terminate training.
+        early_stop_callback = pl.callbacks.EarlyStopping(
+            monitor='val_loss',
+            min_delta=0,
+            patience=10,
+            verbose=False,
+            mode='min'
+        )
+        callback_ls = [best_val_checkpoint, early_stop_callback]
+
+        # add additional callback for optuna hyperopt
+        # if tuning:
+        #     callback_ls.append(tuning_callback)
+        
+        trainer_dict = {
+            'deterministic': True,
+            'devices': 1,
+            'enable_model_summary': False,
+            'enable_progress_bar': False,
+            'accelerator': config.device,
+            'max_epochs': config.num_epochs,
+            'logger': tb_logger,
+            'check_val_every_n_epoch': 10,
+            'log_every_n_steps': 1,
+            'callbacks': callback_ls
+        }
+
+        trainer = pl.Trainer(**trainer_dict)
+
+        gen = torch.Generator()
+        seed = model.config.seed
+        gen.manual_seed(seed)
+
+        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=config.training.batch_size, shuffle=True, generator=gen)
+        val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=config.training.batch_size, shuffle=False, generator=gen)
+        test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=config.training.batch_size, shuffle=False, generator=gen)
 
         trainer.fit(
         model=model,

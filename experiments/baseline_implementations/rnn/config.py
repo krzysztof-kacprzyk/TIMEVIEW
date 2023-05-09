@@ -32,8 +32,8 @@ class RNNConfig():
                           'output_dim': 1, 'num_layers': 1, 'dropout_p': 0.2},
                  training={'optimizer': 'adam', 'lr': 1e-3,
                            'batch_size': 32, 'weight_decay': 1e-5},
-                 dataset_split={'train': 0.8, 'val': 0.1, 'test': 0.1},
-                 dataloader_type='iterative'):
+                device='cpu',
+                num_epochs=200):
 
         assert encoder['hidden_sizes'][-1] == decoder['input_dim']
 
@@ -57,19 +57,7 @@ class RNNConfig():
             raise ValueError("training['batch_size'] must be an integer")
         if not isinstance(training['weight_decay'], float):
             raise ValueError("training['weight_decay'] must be a float")
-        if not isinstance(dataset_split['train'], float):
-            raise ValueError("dataset_split['train'] must be a float")
-        if not isinstance(dataset_split['val'], float):
-            raise ValueError("dataset_split['val'] must be a float")
-        if not isinstance(dataset_split['test'], float):
-            raise ValueError("dataset_split['test'] must be a float")
-        if dataset_split['train'] + dataset_split['val'] + dataset_split['test'] != 1.0:
-            raise ValueError(
-                "dataset_split['train'] + dataset_split['val'] + dataset_split['test'] must equal 1.0")
-        if dataloader_type not in ['iterative', 'tensor']:
-            raise ValueError(
-                "dataloader_type must be one of ['iterative','tensor']")
-
+       
         self.n_features = n_features
         self.seed = seed
         self.max_len = max_len
@@ -77,8 +65,10 @@ class RNNConfig():
         self.encoder = SimpleNamespace(**encoder)
         self.decoder = SimpleNamespace(**decoder)
         self.training = SimpleNamespace(**training)
-        self.dataset_split = SimpleNamespace(**dataset_split)
-        self.dataloader_type = dataloader_type
+        self.device = device
+        self.num_epochs = num_epochs
+
+
 
 
 class RNNTuningConfig():
@@ -89,8 +79,8 @@ class RNNTuningConfig():
         n_features=1,
         max_len=10,
         seed=42,
-        dataset_split={'train': 0.8, 'val': 0.1, 'test': 0.1},
-        dataloader_type='iterative'
+        device='cpu',
+        num_epochs=200
     ):
         assert decoder_type in ['lstm', 'rnn']
 
@@ -154,18 +144,7 @@ class RNNTuningConfig():
             raise ValueError("training['batch_size'] must be an integer")
         if not isinstance(training['weight_decay'], float):
             raise ValueError("training['weight_decay'] must be a float")
-        if not isinstance(dataset_split['train'], float):
-            raise ValueError("dataset_split['train'] must be a float")
-        if not isinstance(dataset_split['val'], float):
-            raise ValueError("dataset_split['val'] must be a float")
-        if not isinstance(dataset_split['test'], float):
-            raise ValueError("dataset_split['test'] must be a float")
-        if dataset_split['train'] + dataset_split['val'] + dataset_split['test'] != 1.0:
-            raise ValueError(
-                "dataset_split['train'] + dataset_split['val'] + dataset_split['test'] must equal 1.0")
-        if dataloader_type not in ['iterative', 'tensor']:
-            raise ValueError(
-                "dataloader_type must be one of ['iterative','tensor']")
+
 
         self.n_features = n_features
         self.seed = seed
@@ -174,5 +153,7 @@ class RNNTuningConfig():
         self.encoder = SimpleNamespace(**encoder)
         self.decoder = SimpleNamespace(**decoder)
         self.training = SimpleNamespace(**training)
-        self.dataset_split = SimpleNamespace(**dataset_split)
-        self.dataloader_type = dataloader_type
+        self.device = device
+        self.num_epochs = num_epochs
+        
+
