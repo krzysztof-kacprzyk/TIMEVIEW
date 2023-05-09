@@ -333,6 +333,7 @@ if __name__ == "__main__":
 
     if args.n_basis == 0:
         n_basis_tunable = True
+        args.n_basis = 5
     else:
         n_basis_tunable = False
 
