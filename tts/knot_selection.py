@@ -20,7 +20,7 @@ def get_knots_for_single_trajectory(t, y, n_internal_knots, s_guess=None, verbos
     if n_internal_knots >= len(found_knots):
         return found_knots, 0.0
 
-    while True:
+    for i in range(20):
         if verbose:
             print(f"Trying s={s}")
         found_knots = UnivariateSpline(t, y, s=s).get_knots()
@@ -40,6 +40,8 @@ def get_knots_for_single_trajectory(t, y, n_internal_knots, s_guess=None, verbos
         if s_upper_bound is not None:
             if s_upper_bound - s_lower_bound < tol_s:
                 tol_n_knots += 1
+    
+    return found_knots, s
 
 
 def get_knots_for_trajectories(ts, ys, n_internal_knots, verbose=False):
