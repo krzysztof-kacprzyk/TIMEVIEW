@@ -16,6 +16,7 @@ import bokeh
 from bokeh.events import Tap
 from bisect import bisect_left, bisect_right
 import pandas as pd
+import matplotlib as mpl
 def simple_interactive_plot(f, time_horizon, trajectory_range, feature_ranges, n_points=1000, figsize=(8, 3)):
     """
     f: function of time t and features x that returns a trajectory y, signature f(t, **x)
@@ -324,17 +325,46 @@ class MetaTemplateContext():
         transition_points_x = np.array(self.current_transition_points)
         transition_points_y = self.litmodel.model.forecast_trajectory(self.current_transformed_features[0,:], transition_points_x)
         return transition_points_x, transition_points_y
+    
+    def get_grid(self):
+        assert len(self.feature_names) == 2
+        # Assert that the features are continuous
+        assert self.feature_types[self.feature_names[0]] == 'continuous'
+        assert self.feature_types[self.feature_names[1]] == 'continuous'
+
+        x_axis = self._get_query_points(self.feature_names[0])
+        y_axis = self._get_query_points(self.feature_names[1])
+        grid_shape = (len(x_axis), len(y_axis))
+        grid = np.meshgrid(x_axis, y_axis)
+        cart_prod = np.stack(grid, axis=-1).reshape(-1, 2)
+        X = pd.DataFrame(cart_prod, columns=self.feature_names)
+        transformed_features = self.column_transformer.transform(X)
+        coeffs = self.litmodel.model.predict_latent_variables(transformed_features)
+        templates = [self.bspline.get_template_from_coeffs(coeffs[i,:])[0] for i in range(len(cart_prod))]
+        
+        mapped_templates = []
+        template_map = {}
+        map_counter = 0
+        for template in templates:
+            if tuple(template) not in template_map:
+                template_map[tuple(template)] = map_counter
+                map_counter += 1
+            mapped_templates.append(template_map[tuple(template)])
+        
+        mapped_templates = np.array(mapped_templates).reshape(grid_shape)
+        
+        return grid[0], grid[1], mapped_templates
 
 
 
-def random_color():
+def random_color(color_seed=0):
     CB_color_cycle = ['#377eb8', '#ff7f00', '#4daf4a',
                   '#f781bf', '#a65628', '#984ea3',
                   '#999999', '#e41a1c', '#dede00']
     for i in range(9):
         yield CB_color_cycle[i]
     for i in range(1000):
-        rng = np.random.default_rng(i)
+        rng = np.random.default_rng(color_seed+i)
         r, g, b = rng.random(3)
         yield (r, g, b)
 
@@ -767,6 +797,366 @@ def expert_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(
 
     interactive_output(update, sliders);
     interactive_output(update_secondary, {'transition_point':transition_point_dropdown, 'x_axis':x_axis_dropdown, 'y_axis':y_axis_dropdown})
+
+
+def grid_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(8, 3), column_transformer=None, y_normalizer=None):
+
+    # Get the time horizon and trajectory range
+    time_horizon = litmodel.config.T
+    feature_names = dataset.get_feature_names()
+    feature_ranges = dataset.get_feature_ranges()
+    feature_types = dataset.get_feature_types()
+
+    assert len(feature_names) == 2, "Only 2D plots are supported"
+
+    if not _verify_column_transformer(column_transformer, feature_names):
+        print("Warning: column transformer does not match feature names")
+        raise ValueError("Invalid column transformer")
+    
+    def transform_y(y):
+        if y_normalizer is not None:
+                return y_normalizer.inverse_transform(y)
+        else:
+            return y
+
+    config = litmodel.config
+
+    bspline = BSplineBasis(config.n_basis, (0,config.T), internal_knots=config.internal_knots)
+    heatmap = Output()
+    # bands = [Output() for _ in range(len(feature_names))]
+    main_plot = Output()
+    secondary_plot = Output()
+
+    t = np.linspace(0, time_horizon, n_points)
+
+    # Set up the figure and axes
+    main_fig, ax = plt.subplots(figsize=figsize)
+    line, = ax.plot([], [], lw=2, zorder=1) # initialize the line with empty data
+    scat = ax.scatter([], [], s=20, c='black', zorder=2, picker=True)
+    plt.title("y = tts(t)")
+    plt.xlim(0, time_horizon)
+    plt.ylim(trajectory_range[0], trajectory_range[1])
+    plt.xlabel('t')
+    plt.ylabel('y')
+    plt.close()
+
+    second_fig, second_ax = plt.subplots(figsize=(figsize[0]*0.65, figsize[1]*0.65))
+    second_line, = second_ax.plot([],[],lw=2, zorder=1)
+    second_scat = second_ax.scatter([],[], s=30, c='black', zorder=2)
+    second_bar = second_ax.bar([], [], zorder=1)
+    plt.close()
+
+  
+
+
+    transition_point_dropdown = Dropdown(
+    options = ['?'],
+    value = '?',
+    description = 'Transition point',
+    disabled=False,
+    layout=Layout(width='150px'),
+    style={'description_width': 'auto'}
+    )
+
+    second_grid = GridspecLayout(7, 6)
+    second_grid.layout.height = '350px'
+
+    y_axis_dropdown = Dropdown(
+        options = ['t','y'],
+        value = 'y',
+        description = '',
+        disabled=False,
+        layout=Layout(width='50px'),
+        style={'description_width': 'auto'}
+    )
+    x_axis_dropdown = Dropdown(
+        options = feature_names,
+        value = feature_names[0],
+        description = '',
+        disabled=False,
+        layout=Layout(width='150px'),
+        style={'description_width': 'auto'}
+    )
+
+    # Create two empty box widgets to act as spacers
+    spacer_box1 = Box(layout=Layout(flex="1 1 auto"))
+    spacer_box2 = Box(layout=Layout(flex="1 1 auto"))
+
+    # Create an HBox containing the spacers and the button
+    centered_hbox = HBox([spacer_box1, x_axis_dropdown, spacer_box2])
+    centered_hbox_2 = HBox([spacer_box1, transition_point_dropdown, spacer_box2])
+
+    second_grid[3,0] = y_axis_dropdown
+    second_grid[6,1:6] = centered_hbox
+    second_grid[0,1:6] = centered_hbox_2
+    second_grid[1:6,1:6] = secondary_plot
+
+    ## Generate our user interface.
+    # Create a dictionary of sliders, one for each feature.
+    sliders = {}
+    for i, k in enumerate(feature_names):
+        v = feature_ranges[k]
+        if i == 0:
+            orientation = 'horizontal'
+        else:
+            orientation = 'vertical'
+
+        if feature_types[k] == 'categorical' or feature_types[k] == 'binary':
+            sliders[k] = SelectionSlider(
+                options = v,
+                value = v[0],
+                disabled=False,
+                orientation=orientation,
+                description=k
+            )
+        else:
+            step = (v[1] - v[0]) / n_points
+            sliders[k] = FloatSlider(min=v[0], max=v[1], step=step, value=v[0], orientation=orientation, description=k)
+
+        if i == 0:
+            sliders[k].layout.margin = '0px 0px 0px -10px'
+        else:
+            sliders[k].layout.margin = '-20px 0px 0px 0px'
+        # sliders[k].layout.margin = '0px 0px 0px 5px'
+        # sliders[k].layout.width = '200px'
+
+
+
+
+    random_color_iter = iter(random_color())
+    color_map = {}
+    meta_template_context = MetaTemplateContext(litmodel, feature_names, feature_ranges, feature_types, column_transformer=column_transformer, n_points=n_points)
+
+    grid_x, grid_y, grid_labels = meta_template_context.get_grid()
+
+    # Create a colormap based on the unique labels
+    unique_labels = list(set(grid_labels.flatten()))
+    cmaplist = []
+    for i in range(len(unique_labels)):
+        cmaplist.append(next(random_color_iter))
+    colormap = mpl.colors.LinearSegmentedColormap.from_list(
+    'Custom cmap', cmaplist, len(unique_labels))
+    # colormap = plt.cm.get_cmap('viridis', len(unique_labels))
+
+
+
+    def update(**x):
+        raw_features =  _extract_raw_features(x, feature_names)
+
+        new_template = meta_template_context.update(raw_features)
+
+        # for i in range(len(feature_names)):
+        #     combined_templates, transitions = meta_template_context.get_meta_templates_and_transitions(i)
+        #     if feature_types[feature_names[i]] == 'categorical' or feature_types[feature_names[i]] == 'binary':
+        #         transitions_numerical = [feature_ranges[feature_names[i]].index(f) for f in transitions]
+        #         transitions = transitions_numerical + [len(feature_ranges[feature_names[i]])]
+
+        #     colors_to_use = []
+        #     for combined_template in combined_templates:
+        #         if tuple(combined_template) not in color_map:
+        #             color_map[tuple(combined_template)] = next(random_color_iter)
+        #         colors_to_use.append(color_map[tuple(combined_template)])
+
+                
+
+            # output = bands[i]
+            # with output:
+            #     output.clear_output(wait=True)
+            #     fig = draw_rectangles(transitions, colors_to_use)
+            #     display(fig)
+        
+        with heatmap:
+            heatmap.clear_output(wait=True)
+            # Plot the contour lines
+            grid_fig, grid_ax = plt.subplots(figsize=(1.6, 1.7))
+            grid_ax.contourf(grid_x, grid_y, grid_labels, levels=len(unique_labels)-1, cmap=colormap, alpha=0.5)
+            grid_ax.scatter(x=x[feature_names[0]], y=x[feature_names[1]], c='black', s=20, zorder=2)
+            plt.axis('off')
+            # Show the colorbar
+            # sm = plt.cm.ScalarMappable(cmap=colormap)
+            # sm.set_array([])
+            # plt.colorbar(sm, ticks=range(len(unique_labels)), 
+            #             boundaries=range(len(unique_labels)+1))
+            display(grid_fig)
+
+            
+        
+        if new_template:
+            num_transition_points = len(meta_template_context.current_transition_points)
+            transition_point_dropdown.options = ['?'] + list(range(1,num_transition_points+1))
+            transition_point_dropdown.value = '?'
+        else:
+            update_secondary(transition_point=transition_point_dropdown.value, x_axis=x_axis_dropdown.value, y_axis=y_axis_dropdown.value)
+
+        t, y = meta_template_context.get_current_trajectory()
+        transition_points_x, transition_points_y = meta_template_context.get_current_transition_points()
+
+        with main_plot:
+            main_plot.clear_output(wait=True)
+            line.set_data(t, transform_y(y))
+            scat.set_offsets(np.c_[transition_points_x, transform_y(transition_points_y)])
+            display(main_fig)
+
+
+    def update_bar_plot(ax, x_values, y_values, colors):
+        # Remove the previous bars
+        for bar in ax.containers:
+            bar.remove()
+        ax.containers.clear()
+
+        # Create new bars with the updated data
+        new_bar_plot = ax.bar(x_values, y_values, zorder=1, color=colors, width=0.5)
+
+        return new_bar_plot
+
+    colors_for_bar_plots = {}
+        
+    def update_secondary(**x):
+        if x['transition_point'] == '?':
+            transition_point = None
+        else:
+            transition_point = x['transition_point'] -1
+           
+        with secondary_plot:
+           
+            if transition_point is not None:
+                x_axis = x['x_axis']
+                y_axis = x['y_axis']
+                x_values, y_values = meta_template_context.get_transition_point_curve(x_axis, y_axis, transition_point)
+                curr_x = meta_template_context.get_current_value(x_axis)
+
+                if y_axis == 'y':
+                    y_values = transform_y(y_values)
+
+                y_max = np.max(y_values)
+                y_min = np.min(y_values)
+                if y_max == y_min:
+                    y_min = y_min - 1.0
+                    y_max = y_max + 1.0
+                y_range = y_max - y_min
+                y_min -= 0.1 * y_range
+                y_max += 0.1 * y_range
+
+                if feature_types[x_axis] == 'continuous':
+ 
+                    second_ax.set_xlim(x_values[0], x_values[-1])
+                    second_ax.set_ylim(y_min, y_max)
+                    
+                    if curr_x > x_values[-1]:
+                        curr_x = x_values[-1]
+                    elif curr_x < x_values[0]:
+                        curr_x = x_values[0]
+
+                    curr_y = y_values[bisect_left(x_values, curr_x)]
+                    
+                    secondary_plot.clear_output(wait=True)
+                    update_bar_plot(second_ax, [],[],[])
+                    second_line.set_data(x_values, y_values)
+                    second_scat.set_offsets(np.c_[[curr_x],[curr_y]])
+
+                    xmin, xmax = second_ax.get_xlim()
+                    step = (xmax - xmin) / 3
+
+                    # Create the ticks and labels
+                    ticks = np.arange(xmin, xmax + step, step)
+                    labels = [f'{tick:.2f}' for tick in ticks]
+
+                    # Set the ticks and labels
+                    second_ax.set_xticks(ticks)
+                    second_ax.set_xticklabels(labels)
+                
+
+                elif feature_types[x_axis] == 'categorical' or feature_types[x_axis] == 'binary':
+
+                    if x_axis not in colors_for_bar_plots:
+                        colors_for_bar_plots[x_axis] = {}
+
+                    colors = []    
+                    
+                    for x_value in x_values:
+                        if x_value not in colors_for_bar_plots[x_axis]:
+                            colors_for_bar_plots[x_axis][x_value] = next(random_color_iter)
+                        colors.append(colors_for_bar_plots[x_axis][x_value])
+                   
+                    x_labels = x_values
+                    x_values = list(range(len(x_labels)))
+
+                    secondary_plot.clear_output(wait=True)
+
+                    update_bar_plot(second_ax, x_values, y_values, colors)
+                    second_line.set_data([], [])
+
+                    curr_x = meta_template_context.get_current_value(x_axis)
+                    curr_x = x_labels.index(curr_x)
+                    curr_y = y_values[curr_x]
+
+                    second_scat.set_offsets(np.c_[[curr_x],[curr_y]])
+                    second_ax.set_xticks(x_values,x_labels)
+
+                    second_ax.set_xlim(x_values[0]-0.5, x_values[-1]+0.5)
+                    second_ax.set_ylim(y_min,y_max)
+                   
+                display(second_fig)
+            else:
+                secondary_plot.clear_output()
+                
+
+    grid = GridspecLayout(4,4)
+    grid.layout.height = '300px'
+    # grid.layout.grid_template_columns = '10px auto'
+
+    grid[0,0:4] = sliders[feature_names[0]]
+    grid[1:4,0] = sliders[feature_names[1]]
+    grid[1:4,1:4] = heatmap
+
+
+    layout = HBox([grid,main_plot, second_grid])
+
+    # # Display the layout
+    display(layout)
+
+    interactive_output(update, sliders);
+    interactive_output(update_secondary, {'transition_point':transition_point_dropdown, 'x_axis':x_axis_dropdown, 'y_axis':y_axis_dropdown})
+
+   
+
+def print_heat_map(litmodel, dataset, trajectory_range, n_points=100, figsize=(8, 3), column_transformer=None, y_normalizer=None, color_seed=0, alpha=0.5):
+
+    # Get the time horizon and trajectory range
+    time_horizon = litmodel.config.T
+    feature_names = dataset.get_feature_names()
+    feature_ranges = dataset.get_feature_ranges()
+    feature_types = dataset.get_feature_types()
+
+    assert len(feature_names) == 2, "Only 2D plots are supported"
+
+    if not _verify_column_transformer(column_transformer, feature_names):
+        print("Warning: column transformer does not match feature names")
+        raise ValueError("Invalid column transformer")
+
+
+    random_color_iter = iter(random_color(color_seed=color_seed))
+
+    meta_template_context = MetaTemplateContext(litmodel, feature_names, feature_ranges, feature_types, column_transformer=column_transformer, n_points=n_points)
+
+    grid_x, grid_y, grid_labels = meta_template_context.get_grid()
+
+    # Create a colormap based on the unique labels
+    unique_labels = list(set(grid_labels.flatten()))
+    cmaplist = []
+    for i in range(len(unique_labels)):
+        cmaplist.append(next(random_color_iter))
+    colormap = mpl.colors.LinearSegmentedColormap.from_list(
+    'Custom cmap', cmaplist, len(unique_labels))
+    # colormap = plt.cm.get_cmap('viridis', len(unique_labels))
+
+        
+    grid_fig, grid_ax = plt.subplots(figsize=(5, 5))
+    grid_ax.contourf(grid_x, grid_y, grid_labels, levels=len(unique_labels)-1, cmap=colormap, alpha=alpha)
+    plt.axis('off')
+    plt.show()
+
+
 
 
 class FigureContext(Output):
