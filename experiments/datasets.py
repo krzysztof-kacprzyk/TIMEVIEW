@@ -5,6 +5,7 @@ import os
 import numpy as np
 import pandas as pd
 import glob
+from scipy.stats import beta
 
 def save_dataset(dataset_name, dataset_builder, dataset_dictionary, notes="", dataset_description_path="dataset_descriptions"):
     # Check if a dataset description directory exists. If not, create it.
@@ -71,7 +72,105 @@ class ExponentialDataset(BaseDataset):
         return {
             'x': (0, 1)
         }
+    
+class BetaDataset(BaseDataset):
 
+    def __init__(self, n_samples=100, n_timesteps=20):
+        super().__init__(n_samples=n_samples, n_timesteps=n_timesteps)
+        n_samples_per_dim = int(np.sqrt(n_samples))
+        n_samples = n_samples_per_dim**2
+        alphas = np.linspace(1.0,4.0,n_samples_per_dim)
+        betas = np.linspace(1.0,4.0,n_samples_per_dim)
+
+        grid = np.meshgrid(alphas, betas)
+    
+        # stack along the last axis and then reshape into 2 columns
+        cart_prod = np.stack(grid, axis=-1).reshape(-1, 2)
+
+        self.X = pd.DataFrame({'alpha':cart_prod[:,0], 'beta':cart_prod[:,1]})
+        self.ts = [np.linspace(0,1,n_timesteps) for i in range(len(self.X))]
+        self.ys = [np.array([beta.pdf(t,alpha, betap) for t in np.linspace(0,1,n_timesteps)]) for alpha, betap in zip(self.X['alpha'], self.X['beta'])]
+    
+    def get_X_ts_ys(self):
+        return self.X, self.ts, self.ys
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def get_feature_names(self):
+        return ['alpha', 'beta']
+    
+    def get_feature_ranges(self):
+        return {
+            'alpha': (1.0, 4.0),
+            'beta': (1.0, 4.0)
+        }
+    
+class Exponential2Dataset(BaseDataset):
+
+    def __init__(self, n_samples=100, n_timesteps=20):
+        super().__init__()
+        self.X = pd.DataFrame({'x':np.linspace(-1,1,n_samples)})
+        self.ts = [np.linspace(0,1,n_timesteps) for i in range(n_samples)]
+        self.ys = [np.exp((t-1)*x) for t, x in zip(self.ts, self.X['x'])]
+    
+    def get_X_ts_ys(self):
+        return self.X, self.ts, self.ys
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def get_feature_names(self):
+        return ['x']
+    
+    def get_feature_ranges(self):
+        return {
+            'x': (-1, 1)
+        }
+
+class SineDataset(BaseDataset):
+
+    def __init__(self, n_samples=100, n_timesteps=20):
+        super().__init__(n_samples=n_samples, n_timesteps=n_timesteps)
+        self.X = pd.DataFrame({'x':np.linspace(-1,1,n_samples)})
+        self.ts = [np.linspace(0,1,n_timesteps) for i in range(n_samples)]
+        self.ys = [np.sin(t*x*np.pi) for t, x in zip(self.ts, self.X['x'])]
+    
+    def get_X_ts_ys(self):
+        return self.X, self.ts, self.ys
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def get_feature_names(self):
+        return ['x']
+    
+    def get_feature_ranges(self):
+        return {
+            'x': (-1, 1)
+        }
+    
+class SineTransDataset(BaseDataset):
+
+    def __init__(self, n_samples=100, n_timesteps=20):
+        super().__init__(n_samples=n_samples, n_timesteps=n_timesteps)
+        self.X = pd.DataFrame({'x':np.linspace(1.0,3.0,n_samples)})
+        self.ts = [np.linspace(0,1,n_timesteps) for i in range(n_samples)]
+        self.ys = [np.sin(2*t*np.pi/x) for t, x in zip(self.ts, self.X['x'])]
+    
+    def get_X_ts_ys(self):
+        return self.X, self.ts, self.ys
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def get_feature_names(self):
+        return ['x']
+    
+    def get_feature_ranges(self):
+        return {
+            'x': (1, 2.5)
+        }
 
 class AirfoilDataset(BaseDataset):
 
