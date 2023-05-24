@@ -17,6 +17,9 @@ import sympy
 from xgboost import XGBRegressor
 import pysindy as ps
 from scipy.integrate import odeint
+from experiments.baseline_implementations.neural_ode.config import NeuralODEConfig, NeuralODETuningConfig
+from experiments.baseline_implementations.neural_ode.dataloader import NeuralODEDataset, create_neural_ode_dataloader
+from experiments.baseline_implementations.neural_ode.lit_module import LitNeuralODE
 
 # from tts.training import training
 # from tts.tuning import tuning
@@ -1256,3 +1259,181 @@ class RNNBenchmark(BaseBenchmark):
             test_loss = results[0]['test_loss']
 
         return {'train_loss': train_loss, 'val_loss': val_loss, 'test_loss': test_loss}
+    
+
+class NeuralODEBenchmark(BaseBenchmark):
+    """NeuralODE benchmark."""
+
+    def __init__(self, config):
+        self.config = config
+        super().__init__()
+
+    def get_name(self):
+        return 'NeuralODE'
+    
+    def get_model_for_tuning(self, trial, seed):
+        """Get model for tuning."""
+        config = NeuralODETuningConfig(
+                            trial,
+                            n_features=self.config.n_features,
+                            seed=self.config.seed,
+                            device=self.config.device,
+                            num_epochs=self.config.num_epochs,
+                            dataloader_type=self.config.dataloader_type)
+        litmodel = LitNeuralODE(config)
+        tuning_callback = PyTorchLightningPruningCallback(trial, monitor='val_loss')
+        return (litmodel, tuning_callback)
+       
+    def get_final_model(self, parameters, seed):
+        """Get model for testing."""
+        if parameters is not None:
+            encoder = {
+                'hidden_sizes': [parameters[f'hidden_size_{i}'] for i in range(3)],
+                'activation': parameters['activation'],
+                'dropout_p': parameters['dropout_p']
+            }
+            training = {
+                'batch_size': parameters['batch_size'],
+                'lr': parameters['lr'],
+                'weight_decay': parameters['weight_decay'],
+                'optimizer': 'adam'
+            }
+
+            config = NeuralODEConfig(n_features=self.config.n_features,
+                            seed=seed,
+                            encoder=encoder,
+                            training=training,
+                            device=self.config.device,
+                            num_epochs=self.config.num_epochs,
+                            dataloader_type=self.config.dataloader_type)
+        else:
+            config = self.config
+
+        litmodel = LitNeuralODE(config)
+        return litmodel
+
+    def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
+        X, ts, ys = dataset.get_X_ts_ys()
+
+        self.X_train = X.iloc[train_indices,:]
+        self.ts_train = [ts[i] for i in train_indices]
+        self.ys_train = [ys[i] for i in train_indices]
+        self.X_val = X.iloc[val_indices,:]
+        self.ts_val = [ts[i] for i in val_indices]
+        self.ys_val = [ys[i] for i in val_indices]
+        self.X_test = X.iloc[test_indices,:]
+        self.ts_test = [ts[i] for i in test_indices]
+        self.ys_test = [ys[i] for i in test_indices]
+
+        # Transform the data
+        transformer = dataset.get_default_column_transformer()
+        y_normalizer = YNormalizer()
+
+        self.X_train = transformer.fit_transform(self.X_train)
+        self.ys_train = y_normalizer.fit_transform(self.ys_train)
+
+        self.X_val = transformer.transform(self.X_val)
+        self.ys_val = y_normalizer.transform(self.ys_val)
+        self.X_test = transformer.transform(self.X_test)
+        self.ys_test = y_normalizer.transform(self.ys_test)
+
+        # Save the transformer using joblib
+        os.makedirs(os.path.join(self.benchmarks_dir, self.name), exist_ok=True)
+        joblib.dump(transformer, os.path.join(self.benchmarks_dir, self.name, 'column_transformer.joblib'))
+
+        # Save y_normalizer
+        y_normalizer.save(os.path.join(self.benchmarks_dir, self.name))
+
+        self.train_dataset = NeuralODEDataset(self.config, self.X_train, self.ts_train, self.ys_train)
+        self.val_dataset = NeuralODEDataset(self.config, self.X_val, self.ts_val, self.ys_val)
+        self.test_dataset = NeuralODEDataset(self.config, self.X_test, self.ts_test, self.ys_test)
+        
+
+    def train(self, model, tuning=False):
+        """Train model."""
+        if tuning:
+            tuning_callback = model[1]
+            model = model[0]
+            log_dir = os.path.join(self.benchmarks_dir, self.name, 'tuning', 'logs', f'seed_{model.config.seed}')
+        else:
+            log_dir =  os.path.join(self.benchmarks_dir, self.name, 'final', 'logs', f'seed_{model.config.seed}')
+
+       
+        train_dataset = self.train_dataset
+        val_dataset = self.val_dataset
+        test_dataset = self.test_dataset
+
+        tb_logger = pl.loggers.TensorBoardLogger(save_dir=log_dir)
+
+        # Create folder if does not exist
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+
+        # Save config as a pickle file
+        config = model.config
+
+        if not tuning:
+            with open(os.path.join(log_dir, 'config.pkl'), 'wb') as f:
+                pickle.dump(config, f)
+        
+
+        
+        # create callbacks
+        best_val_checkpoint = pl.callbacks.ModelCheckpoint(
+            monitor='val_loss',
+            mode='min',
+            save_top_k=1,
+            filename='best_val'
+        )
+        # added early stopping callback, if validation loss does not improve over 10 epochs -> terminate training.
+        early_stop_callback = pl.callbacks.EarlyStopping(
+            monitor='val_loss',
+            min_delta=0,
+            patience=10,
+            verbose=False,
+            mode='min'
+        )
+        callback_ls = [best_val_checkpoint, early_stop_callback]
+
+        # add additional callback for optuna hyperopt
+        # if tuning:
+        #     callback_ls.append(tuning_callback)
+        
+        trainer_dict = {
+            'deterministic': True,
+            'devices': 1,
+            'enable_model_summary': False,
+            'enable_progress_bar': True,
+            'accelerator': config.device,
+            'max_epochs': config.num_epochs,
+            'logger': tb_logger,
+            'check_val_every_n_epoch': 10,
+            'log_every_n_steps': 1,
+            'callbacks': callback_ls
+        }
+
+        trainer = pl.Trainer(**trainer_dict)
+
+        train_dataloader = create_neural_ode_dataloader(model.config, train_dataset, None, shuffle=True)
+        val_dataloader = create_neural_ode_dataloader(model.config, val_dataset, None, shuffle=False)
+        test_dataloader = create_neural_ode_dataloader(model.config, test_dataset, None, shuffle=False)
+    
+
+        trainer.fit(
+        model=model,
+        train_dataloaders=train_dataloader,
+        val_dataloaders=val_dataloader)
+
+        print(f"Finished after {trainer.current_epoch} epochs.")
+
+        train_loss = trainer.logged_metrics['train_loss']
+        print(f"train_loss: {train_loss}")
+        val_loss = early_stop_callback.best_score
+        test_loss = 0
+
+        if not tuning:
+            results = trainer.test(model=model, dataloaders=test_dataloader)
+            test_loss = results[0]['test_loss']
+
+        return {'train_loss': train_loss, 'val_loss': val_loss, 'test_loss': test_loss}
+    
