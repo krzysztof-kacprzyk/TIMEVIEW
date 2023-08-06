@@ -127,7 +127,23 @@ def create_benchmark_datasets_if_not_exist(dataset_description_path='dataset_des
                 "granularity": "visit",
                 "normalize": False,
                 "max_t": 12.5}
-        }
+        },
+        {
+            "dataset_name": "sine_trans_200_20",
+            "dataset_builder": "SineTransDataset",
+            "dataset_dictionary": {
+                "n_samples": 200,
+                "n_timesteps": 20
+            },
+        },
+        {
+            "dataset_name": "beta_900_20",
+            "dataset_builder": "BetaDataset",
+            "dataset_dictionary": {
+                "n_samples": 900,
+                "n_timesteps": 20
+            },
+        },
     ]
 
     # Check if the dataset description directory exists and create it if not
@@ -355,7 +371,9 @@ if __name__ == "__main__":
         'celgene': 1.0,
         'flchain_1000': 1.0,
         'stress-strain-lot-max-0.2': 1.0,
-        'tacrolimus_visit_12': 12.5
+        'tacrolimus_visit_12': 12.5,
+        'sine_trans_200_20': 1.0, # it was 3.0 for some reason but I think it was a typo
+        'beta_900_20': 1.0
     }
 
     tts_n_features = {
@@ -365,12 +383,21 @@ if __name__ == "__main__":
         'celgene': 11,
         'flchain_1000': 16,
         'stress-strain-lot-max-0.2': 10,
-        'tacrolimus_visit_12': 9
+        'tacrolimus_visit_12': 9,
+        'sine_trans_200_20': 1,
+        'beta_900_20': 2
     }
 
     rnn_max_len = {
         'synthetic_tumor_wilkerson_1': 20,
+        'tumor': 19,
+        'airfoil_log': 19,
+        'celgene': 7,
         'flchain_1000': 20,
+        'stress-strain-lot-max-0.2': 774,
+        'tacrolimus_visit_12': 11,
+        'sine_trans_200_20': 20,
+        'beta_900_20': 20,
     }
 
     if args.validate:
@@ -407,6 +434,9 @@ if __name__ == "__main__":
                 benchmarks['RNN'] = {'config': rnn_config}
             if 'SINDy' in args.baselines:
                 benchmarks['SINDy'] = {}
+            if 'DeltaTRNN' in args.baselines:
+                rnn_config = RNNConfig(args.rnn_type, n_features=tts_n_features[dataset_name], seed=global_seed, max_len=rnn_max_len[dataset_name], num_epochs=1000, device=args.device)
+                benchmarks['DeltaTRNN'] = {'config': rnn_config}
 
             run_benchmarks(dataset_name, benchmarks, **validate_benchmark_options)
         
@@ -434,6 +464,10 @@ if __name__ == "__main__":
             benchmarks['RNN'] = {'config': rnn_config}
         if 'SINDy' in args.baselines:
             benchmarks['SINDy'] = {}
+        if 'DeltaTRNN' in args.baselines:
+            rnn_config = RNNConfig(args.rnn_type, n_features=tts_n_features[dataset_name], seed=global_seed, max_len=rnn_max_len[dataset_name], num_epochs=1000, device=args.device)
+            benchmarks['DeltaTRNN'] = {'config': rnn_config}
+
 
 
         run_benchmarks(dataset_name, benchmarks, **benchmark_options)
