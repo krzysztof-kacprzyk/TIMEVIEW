@@ -17,9 +17,12 @@ import sympy
 from xgboost import XGBRegressor
 import pysindy as ps
 from scipy.integrate import odeint
-from experiments.baseline_implementations.neural_ode.config import NeuralODEConfig, NeuralODETuningConfig
-from experiments.baseline_implementations.neural_ode.dataloader import NeuralODEDataset, create_neural_ode_dataloader
-from experiments.baseline_implementations.neural_ode.lit_module import LitNeuralODE
+from baseline_implementations.neural_ode.config import NeuralODEConfig, NeuralODETuningConfig
+from baseline_implementations.neural_ode.dataloader import NeuralODEDataset, create_neural_ode_dataloader
+from baseline_implementations.neural_ode.lit_module import LitNeuralODE
+
+from baseline_implementations.neural_laplace.lit_module import LitNeuralLaplace
+from baseline_implementations.neural_laplace.config import NeuralLaplaceConfig, NeuralLaplaceTuningConfig
 
 # from tts.training import training
 # from tts.tuning import tuning
@@ -33,7 +36,7 @@ import pytorch_lightning as pl
 import torch
 
 from baseline_implementations.rnn.config import RNNConfig, RNNTuningConfig
-from baseline_implementations.rnn.lit_module import LitRNN
+from baseline_implementations.rnn.lit_module import LitRNN, LitDeltaTRNN
 
 from pysr import PySRRegressor
 
@@ -107,6 +110,35 @@ class YNormalizer:
         """Fit normalization parameters and normalize y values."""
         self.fit(ys)
         return self.transform(ys)
+    
+
+def _pad_to_shape(a, shape):
+    """
+    This function pads a 1D, 2D or 3D numpy array with zeros to a specified shape
+    Args:
+        a: a numpy array
+        shape: a tuple of integers
+    Returns:
+        a numpy array of shape shape
+    """
+    if a.shape == shape:
+        return a
+    if len(a.shape) == 1:
+        assert a.shape[0] <= shape[0]
+        b = np.zeros(shape)
+        b[:a.shape[0]] = a
+    elif len(a.shape) == 2:
+        assert a.shape[0] <= shape[0]
+        assert a.shape[1] <= shape[1]
+        b = np.zeros(shape)
+        b[:a.shape[0], :a.shape[1]] = a
+    elif len(a.shape) == 3:
+        assert a.shape[0] <= shape[0]
+        assert a.shape[1] <= shape[1]
+        assert a.shape[2] <= shape[2]
+        b = np.zeros(shape)
+        b[:a.shape[0], :a.shape[1], :a.shape[2]] = a
+    return b
 
 
 class BaseBenchmark(ABC):
@@ -1418,6 +1450,406 @@ class NeuralODEBenchmark(BaseBenchmark):
         val_dataloader = create_neural_ode_dataloader(model.config, val_dataset, None, shuffle=False)
         test_dataloader = create_neural_ode_dataloader(model.config, test_dataset, None, shuffle=False)
     
+
+        trainer.fit(
+        model=model,
+        train_dataloaders=train_dataloader,
+        val_dataloaders=val_dataloader)
+
+        print(f"Finished after {trainer.current_epoch} epochs.")
+
+        train_loss = trainer.logged_metrics['train_loss']
+        print(f"train_loss: {train_loss}")
+        val_loss = early_stop_callback.best_score
+        test_loss = 0
+
+        if not tuning:
+            results = trainer.test(model=model, dataloaders=test_dataloader)
+            test_loss = results[0]['test_loss']
+
+        return {'train_loss': train_loss, 'val_loss': val_loss, 'test_loss': test_loss}
+
+
+class NeuralLaplaceBenchmark(BaseBenchmark):
+    """NeuralODE benchmark."""
+
+    def __init__(self, config):
+        self.config = config
+        super().__init__()
+
+    def get_name(self):
+        return 'NeuralLaplace'
+    
+    def get_model_for_tuning(self, trial, seed):
+        """Get model for tuning."""
+        config = NeuralLaplaceTuningConfig(
+                            trial,
+                            n_features=self.config.n_features,
+                            seed=self.config.seed,
+                            device=self.config.device,
+                            num_epochs=self.config.num_epochs,
+                            dataloader_type=self.config.dataloader_type)
+        litmodel = LitNeuralLaplace(config)
+        tuning_callback = PyTorchLightningPruningCallback(trial, monitor='val_loss')
+        return (litmodel, tuning_callback)
+       
+    def get_final_model(self, parameters, seed):
+        """Get model for testing."""
+        if parameters is not None:
+            encoder = {
+                'hidden_sizes': [parameters[f'hidden_size_{i}'] for i in range(3)],
+                'activation': parameters['activation'],
+                'dropout_p': parameters['dropout_p'],
+                'latent_dim': parameters['latent_dim'],
+            }
+            training = {
+                'batch_size': parameters['batch_size'],
+                'lr': parameters['lr'],
+                'weight_decay': parameters['weight_decay'],
+                'optimizer': 'adam'
+            }
+
+            config = NeuralLaplaceConfig(n_features=self.config.n_features,
+                            seed=seed,
+                            encoder=encoder,
+                            training=training,
+                            device=self.config.device,
+                            num_epochs=self.config.num_epochs,
+                            dataloader_type=self.config.dataloader_type)
+        else:
+            config = self.config
+
+        litmodel = LitNeuralLaplace(config)
+        return litmodel
+
+    def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
+        X, ts, ys = dataset.get_X_ts_ys()
+
+        self.X_train = X.iloc[train_indices,:]
+        self.ts_train = [ts[i] for i in train_indices]
+        self.ys_train = [ys[i] for i in train_indices]
+        self.X_val = X.iloc[val_indices,:]
+        self.ts_val = [ts[i] for i in val_indices]
+        self.ys_val = [ys[i] for i in val_indices]
+        self.X_test = X.iloc[test_indices,:]
+        self.ts_test = [ts[i] for i in test_indices]
+        self.ys_test = [ys[i] for i in test_indices]
+
+        # Transform the data
+        transformer = dataset.get_default_column_transformer()
+        y_normalizer = YNormalizer()
+
+        self.X_train = transformer.fit_transform(self.X_train)
+        self.ys_train = y_normalizer.fit_transform(self.ys_train)
+
+        self.X_val = transformer.transform(self.X_val)
+        self.ys_val = y_normalizer.transform(self.ys_val)
+        self.X_test = transformer.transform(self.X_test)
+        self.ys_test = y_normalizer.transform(self.ys_test)
+
+        # Save the transformer using joblib
+        os.makedirs(os.path.join(self.benchmarks_dir, self.name), exist_ok=True)
+        joblib.dump(transformer, os.path.join(self.benchmarks_dir, self.name, 'column_transformer.joblib'))
+
+        # Save y_normalizer
+        y_normalizer.save(os.path.join(self.benchmarks_dir, self.name))
+
+        self.train_dataset = NeuralODEDataset(self.config, self.X_train, self.ts_train, self.ys_train)
+        self.val_dataset = NeuralODEDataset(self.config, self.X_val, self.ts_val, self.ys_val)
+        self.test_dataset = NeuralODEDataset(self.config, self.X_test, self.ts_test, self.ys_test)
+        
+
+    def train(self, model, tuning=False):
+        """Train model."""
+        if tuning:
+            tuning_callback = model[1]
+            model = model[0]
+            log_dir = os.path.join(self.benchmarks_dir, self.name, 'tuning', 'logs', f'seed_{model.config.seed}')
+        else:
+            log_dir =  os.path.join(self.benchmarks_dir, self.name, 'final', 'logs', f'seed_{model.config.seed}')
+
+       
+        train_dataset = self.train_dataset
+        val_dataset = self.val_dataset
+        test_dataset = self.test_dataset
+
+        tb_logger = pl.loggers.TensorBoardLogger(save_dir=log_dir)
+
+        # Create folder if does not exist
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+
+        # Save config as a pickle file
+        config = model.config
+
+        if not tuning:
+            with open(os.path.join(log_dir, 'config.pkl'), 'wb') as f:
+                pickle.dump(config, f)
+        
+
+        
+        # create callbacks
+        best_val_checkpoint = pl.callbacks.ModelCheckpoint(
+            monitor='val_loss',
+            mode='min',
+            save_top_k=1,
+            filename='best_val'
+        )
+        # added early stopping callback, if validation loss does not improve over 10 epochs -> terminate training.
+        early_stop_callback = pl.callbacks.EarlyStopping(
+            monitor='val_loss',
+            min_delta=0,
+            patience=10,
+            verbose=False,
+            mode='min'
+        )
+        callback_ls = [best_val_checkpoint, early_stop_callback]
+
+        # add additional callback for optuna hyperopt
+        # if tuning:
+        #     callback_ls.append(tuning_callback)
+        
+        trainer_dict = {
+            'deterministic': True,
+            'devices': 1,
+            'enable_model_summary': False,
+            'enable_progress_bar': True,
+            'accelerator': config.device,
+            'max_epochs': config.num_epochs,
+            'logger': tb_logger,
+            'check_val_every_n_epoch': 10,
+            'log_every_n_steps': 1,
+            'callbacks': callback_ls
+        }
+
+        trainer = pl.Trainer(**trainer_dict)
+
+        train_dataloader = create_neural_ode_dataloader(model.config, train_dataset, None, shuffle=True)
+        val_dataloader = create_neural_ode_dataloader(model.config, val_dataset, None, shuffle=False)
+        test_dataloader = create_neural_ode_dataloader(model.config, test_dataset, None, shuffle=False)
+    
+
+        trainer.fit(
+        model=model,
+        train_dataloaders=train_dataloader,
+        val_dataloaders=val_dataloader)
+
+        print(f"Finished after {trainer.current_epoch} epochs.")
+
+        train_loss = trainer.logged_metrics['train_loss']
+        print(f"train_loss: {train_loss}")
+        val_loss = early_stop_callback.best_score
+        test_loss = 0
+
+        if not tuning:
+            results = trainer.test(model=model, dataloaders=test_dataloader)
+            test_loss = results[0]['test_loss']
+
+        return {'train_loss': train_loss, 'val_loss': val_loss, 'test_loss': test_loss}
+
+
+class DeltaTRNNBenchmark(BaseBenchmark):
+    """RNN benchmark."""
+
+    def __init__(self, config):
+        self.config = config
+        super().__init__()
+
+    def get_name(self):
+        return 'DeltaTRNN'
+    
+    def get_model_for_tuning(self, trial, seed):
+        """Get model for tuning."""
+        config = RNNTuningConfig(
+                            trial,
+                            decoder_type=self.config.decoder_type,
+                            n_features=self.config.n_features,
+                            max_len = self.config.max_len,
+                            seed=self.config.seed,
+                            device=self.config.device,
+                            num_epochs=self.config.num_epochs)
+        litmodel = LitDeltaTRNN(config)
+        tuning_callback = PyTorchLightningPruningCallback(trial, monitor='val_loss')
+        return (litmodel, tuning_callback)
+       
+    def get_final_model(self, parameters, seed):
+        """Get model for testing."""
+        if parameters is not None:
+            encoder = {
+                'hidden_sizes': [parameters[f'hidden_size_{i}'] for i in range(3)],
+                'activation': parameters['activation'],
+                'dropout_p': parameters['dropout_p']
+            }
+            decoder = {
+                'input_dim': parameters['hidden_size_2'],
+                'hidden_dim': parameters['decoder_hidden_dim'],
+                'output_dim': 1,
+                'num_layers': parameters['decoder_num_layers'],
+                'dropout_p': parameters['decoder_dropout_p']
+            }
+            training = {
+                'optimizer': 'adam',
+                'batch_size': parameters['batch_size'],
+                'lr': parameters['lr'],
+                'weight_decay': parameters['weight_decay'],
+            }
+
+            config = RNNConfig(decoder_type=self.config.decoder_type,
+                            n_features=self.config.n_features,
+                            seed=seed,
+                            max_len=self.config.max_len,
+                            encoder=encoder,
+                            decoder=decoder,
+                            training=training,
+                            device=self.config.device,
+                            num_epochs=self.config.num_epochs
+                            )
+        else:
+            config = self.config
+
+        litmodel = LitDeltaTRNN(config)
+        return litmodel
+
+    def prepare_data(self, dataset: BaseDataset, train_indices, val_indices, test_indices):
+        X, ts, ys = dataset.get_X_ts_ys()
+
+        self.X_train = X.iloc[train_indices,:]
+        self.ts_train = [ts[i] for i in train_indices]
+        self.ys_train = [ys[i] for i in train_indices]
+        self.X_val = X.iloc[val_indices,:]
+        self.ts_val = [ts[i] for i in val_indices]
+        self.ys_val = [ys[i] for i in val_indices]
+        self.X_test = X.iloc[test_indices,:]
+        self.ts_test = [ts[i] for i in test_indices]
+        self.ys_test = [ys[i] for i in test_indices]
+
+        # Transform the data
+        transformer = dataset.get_default_column_transformer()
+        y_normalizer = YNormalizer()
+
+        self.X_train = transformer.fit_transform(self.X_train)
+        self.ys_train = y_normalizer.fit_transform(self.ys_train)
+
+        self.X_val = transformer.transform(self.X_val)
+        self.ys_val = y_normalizer.transform(self.ys_val)
+        self.X_test = transformer.transform(self.X_test)
+        self.ys_test = y_normalizer.transform(self.ys_test)
+
+        # Save the transformer using joblib
+        os.makedirs(os.path.join(self.benchmarks_dir, self.name), exist_ok=True)
+        joblib.dump(transformer, os.path.join(self.benchmarks_dir, self.name, 'column_transformer.joblib'))
+
+        # Save y_normalizer
+        y_normalizer.save(os.path.join(self.benchmarks_dir, self.name))
+
+        # Create datasets
+
+        def prepare_tensor_dataset(X, ts, ys):
+            """
+            Calculates dt from t
+            Pads dt and y with zeros to max_len
+            Creates mask
+            """
+            mask = np.zeros((len(ts), self.config.max_len))
+            dts = []
+            padded_ys = []
+            for i in range(len(ts)):
+                t = ts[i]
+                y = ys[i]
+                dt = np.diff(t)
+                dt = np.insert(dt, 0, 0)
+                n = len(dt)
+                if n > self.config.max_len:
+                    dt = dt[:self.config.max_len]
+                    y = y[:self.config.max_len]
+                else:
+                    dt = _pad_to_shape(dt, (self.config.max_len,))
+                    y = _pad_to_shape(y, (self.config.max_len,))
+                mask[i,0:n] = 1
+                dts.append(dt)
+                padded_ys.append(y)
+            
+            X = torch.tensor(X, dtype=torch.float32)
+            dts = torch.tensor(np.stack(dts, axis=0), dtype=torch.float32)
+            padded_ys = torch.tensor(np.stack(padded_ys, axis=0), dtype=torch.float32)
+            mask = torch.tensor(mask, dtype=torch.float32)
+
+            return torch.utils.data.TensorDataset(X, dts, padded_ys, mask)
+
+
+        self.train_dataset = prepare_tensor_dataset(self.X_train, self.ts_train, self.ys_train)
+        self.val_dataset = prepare_tensor_dataset(self.X_val, self.ts_val, self.ys_val)
+        self.test_dataset = prepare_tensor_dataset(self.X_test, self.ts_test, self.ys_test)
+        
+
+    def train(self, model, tuning=False):
+        """Train model."""
+        if tuning:
+            tuning_callback = model[1]
+            model = model[0]
+            log_dir = os.path.join(self.benchmarks_dir, self.name, 'tuning', 'logs', f'seed_{model.config.seed}')
+        else:
+            log_dir =  os.path.join(self.benchmarks_dir, self.name, 'final', 'logs', f'seed_{model.config.seed}')
+
+        train_dataset = self.train_dataset
+        val_dataset = self.val_dataset
+        test_dataset = self.test_dataset
+
+        tb_logger = pl.loggers.TensorBoardLogger(save_dir=log_dir)
+
+        # Create folder if does not exist
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+
+        # Save config as a pickle file
+        config = model.config
+        with open(os.path.join(log_dir, 'config.pkl'), 'wb') as f:
+            pickle.dump(config, f)
+        
+
+        # create callbacks
+        best_val_checkpoint = pl.callbacks.ModelCheckpoint(
+            monitor='val_loss',
+            mode='min',
+            save_top_k=1,
+            filename='best_val'
+        )
+        # added early stopping callback, if validation loss does not improve over 10 epochs -> terminate training.
+        early_stop_callback = pl.callbacks.EarlyStopping(
+            monitor='val_loss',
+            min_delta=0,
+            patience=10,
+            verbose=False,
+            mode='min'
+        )
+        callback_ls = [best_val_checkpoint, early_stop_callback]
+
+        # add additional callback for optuna hyperopt
+        # if tuning:
+        #     callback_ls.append(tuning_callback)
+        
+        trainer_dict = {
+            'deterministic': True,
+            'devices': 1,
+            'enable_model_summary': False,
+            'enable_progress_bar': False,
+            'accelerator': config.device,
+            'max_epochs': config.num_epochs,
+            'logger': tb_logger,
+            'check_val_every_n_epoch': 10,
+            'log_every_n_steps': 1,
+            'callbacks': callback_ls
+        }
+
+        trainer = pl.Trainer(**trainer_dict)
+
+        gen = torch.Generator()
+        seed = model.config.seed
+        gen.manual_seed(seed)
+
+        train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=config.training.batch_size, shuffle=True, generator=gen)
+        val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=config.training.batch_size, shuffle=False, generator=gen)
+        test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=config.training.batch_size, shuffle=False, generator=gen)
 
         trainer.fit(
         model=model,

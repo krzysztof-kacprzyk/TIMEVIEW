@@ -1,27 +1,28 @@
 import pytorch_lightning as pl
 import torch
 from .config import NeuralODEConfig, OPTIMIZERS
-from .neural_ode import NeuralGradient
+from .neural_ode import NeuralGradient, NeuralGradient2
 from torchdiffeq import odeint as odeint
-
-
+from torchdiffeq import odeint_adjoint as odeint_adjoint
 
 class LitNeuralODE(pl.LightningModule):
 
     def __init__(self,config: NeuralODEConfig):
         super().__init__()
         self.config = config
-        self.model = NeuralGradient(config)
+        self.model = NeuralGradient2(config)
         self.loss = torch.nn.MSELoss()
 
     def predict_step(self, batch, batch_idx):
         batch_X, batch_ts, batch_ys = batch
         for i in range(len(batch_ts)):
-            X = batch_X[i,:]
-            t = batch_ts[i]
-            y = batch_ys[i]
-            y0 = torch.cat((y[[0]],X))
-            pred = odeint(self.model, y0, t)
+            X = batch_X[i,:] # shape (n_covariates)
+            t = batch_ts[i] # shape (n_timepoints)
+            y = batch_ys[i] # shape (n_timepoints)
+            y0 = y[[0]] # shape (1)
+            # pred = odeint(lambda t, y: self.model.forward(t,y,X), y0, t)
+            y_cov_0 = torch.cat([y0, X], dim=-1) # shape (n_covariates + 1)
+            pred = odeint_adjoint(self.model, y_cov_0, t)
             y_pred = pred[:,0]
         return y_pred
 
@@ -29,12 +30,14 @@ class LitNeuralODE(pl.LightningModule):
         batch_X, batch_ts, batch_ys = batch
         losses = []
         for i in range(len(batch_ts)):
-            X = batch_X[[i],:]
-            t = batch_ts[i]
-            y = batch_ys[i]
-            y0 = y[[0]].unsqueeze(0)
-            pred = odeint(lambda t, y: self.model.forward(t,y,X), y0, t)
-            y_pred = pred[:,0,0]
+            X = batch_X[i,:] # shape (n_covariates)
+            t = batch_ts[i] # shape (n_timepoints)
+            y = batch_ys[i] # shape (n_timepoints)
+            y0 = y[[0]] # shape (1)
+            # pred = odeint(lambda t, y: self.model.forward(t,y,X), y0, t)
+            y_cov_0 = torch.cat([y0, X], dim=-1) # shape (n_covariates + 1)
+            pred = odeint_adjoint(self.model, y_cov_0, t, method='rk4', rtol=1e-3, atol=1e-3, options={'max_num_steps': 20}, adjoint_options={'max_num_steps': 20})
+            y_pred = pred[:,0]
             loss = self.loss(y_pred, y)
             losses.append(loss)
         loss = torch.mean(torch.stack(losses))
@@ -45,12 +48,14 @@ class LitNeuralODE(pl.LightningModule):
         batch_X, batch_ts, batch_ys = batch
         losses = []
         for i in range(len(batch_ts)):
-            X = batch_X[[i],:]
-            t = batch_ts[i]
-            y = batch_ys[i]
-            y0 = y[[0]].unsqueeze(0)
-            pred = odeint(lambda t, y: self.model.forward(t,y,X), y0, t)
-            y_pred = pred[:,0,0]
+            X = batch_X[i,:] # shape (n_covariates)
+            t = batch_ts[i] # shape (n_timepoints)
+            y = batch_ys[i] # shape (n_timepoints)
+            y0 = y[[0]] # shape (1)
+            # pred = odeint(lambda t, y: self.model.forward(t,y,X), y0, t)
+            y_cov_0 = torch.cat([y0, X], dim=-1) # shape (n_covariates + 1)
+            pred = odeint_adjoint(self.model, y_cov_0, t)
+            y_pred = pred[:,0]
             loss = self.loss(y_pred, y)
             losses.append(loss)
         loss = torch.mean(torch.stack(losses))
@@ -61,12 +66,14 @@ class LitNeuralODE(pl.LightningModule):
         batch_X, batch_ts, batch_ys = batch
         losses = []
         for i in range(len(batch_ts)):
-            X = batch_X[[i],:]
-            t = batch_ts[i]
-            y = batch_ys[i]
-            y0 = y[[0]].unsqueeze(0)
-            pred = odeint(lambda t, y: self.model.forward(t,y,X), y0, t)
-            y_pred = pred[:,0,0]
+            X = batch_X[i,:] # shape (n_covariates)
+            t = batch_ts[i] # shape (n_timepoints)
+            y = batch_ys[i] # shape (n_timepoints)
+            y0 = y[[0]] # shape (1)
+            # pred = odeint(lambda t, y: self.model.forward(t,y,X), y0, t)
+            y_cov_0 = torch.cat([y0, X], dim=-1) # shape (n_covariates + 1)
+            pred = odeint_adjoint(self.model, y_cov_0, t)
+            y_pred = pred[:,0]
             loss = self.loss(y_pred, y)
             losses.append(loss)
         loss = torch.mean(torch.stack(losses))
