@@ -5,7 +5,7 @@ from .config import Config, TuningConfig
 from .basis import BSplineBasis
 import pandas as pd
 from scipy.integrate import odeint
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.preprocessing import OrdinalEncoder, StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 
 from abc import abstractmethod, ABC
@@ -123,7 +123,7 @@ class BaseDataset(ABC):
                 return 'binary'
         raise ValueError('Invalid feature range')
     
-    def get_default_column_transformer(self):
+    def get_default_column_transformer(self, keep_categorical=False):
         """
         Creates a default column transformer for the dataset
         Returns:
@@ -134,7 +134,10 @@ class BaseDataset(ABC):
             if self.get_feature_type(feature_name) == 'continuous':
                 transformer = StandardScaler()
             elif self.get_feature_type(feature_name) == 'categorical' or self.get_feature_type(feature_name) == 'binary':
-                transformer = OneHotEncoder(categories=[self.get_feature_ranges()[feature_name]],sparse_output=False,drop='if_binary')
+                if keep_categorical:
+                    transformer = OrdinalEncoder(categories=[self.get_feature_ranges()[feature_name]])
+                else:
+                    transformer = OneHotEncoder(categories=[self.get_feature_ranges()[feature_name]],sparse_output=False,drop='if_binary')
             transformers.append((f"{feature_name}_transformer", transformer, [feature_index]))
         transformer = ColumnTransformer(transformers=transformers, remainder='passthrough') # The remainder option is needed to pass the time column for static methods
         return transformer
