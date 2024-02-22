@@ -70,7 +70,7 @@ def simple_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(
     
     simple_interactive_plot(trajectory, time_horizon, trajectory_range, feature_ranges, n_points, figsize=figsize)
 
-def simple_baseline_plot(model, dataset, time_horizon, trajectory_range, column_transformer, n_points=1000, figsize=(8, 3)):
+def simple_baseline_plot(model, dataset, time_horizon, trajectory_range, column_transformer, y_normalizer=None, n_points=1000, figsize=(8, 3)):
     """
     """
     t = np.linspace(0, time_horizon, n_points)
@@ -99,6 +99,8 @@ def simple_baseline_plot(model, dataset, time_horizon, trajectory_range, column_
         X = column_transformer.transform(X)
         # print(X.shape)
         y_pred = model.predict(X)
+        if y_normalizer is not None:
+            y_pred = y_normalizer.inverse_transform(y_pred)
         return y_pred
     
     def plot_f(**x):
@@ -520,13 +522,24 @@ def _extract_raw_features(x, feature_names):
     # This function takes a dictionary of features and returns a dataframe with one row and the features as columns
     return pd.DataFrame(x, index=[0])[feature_names]
 
-def expert_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(8, 3), column_transformer=None, y_normalizer=None):
+def expert_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(8, 3), column_transformer=None, y_normalizer=None, display_feature_names=None,default_values=None):
 
     # Get the time horizon and trajectory range
     time_horizon = litmodel.config.T
     feature_names = dataset.get_feature_names()
     feature_ranges = dataset.get_feature_ranges()
     feature_types = dataset.get_feature_types()
+    if display_feature_names is None:
+        display_feature_names = feature_names
+    else:
+        assert len(display_feature_names) == len(feature_names)
+
+    if default_values is None:
+        default_values = {feature_name:feature_ranges[feature_name][0] for feature_name in feature_names}
+    else:
+        assert len(default_values) == len(feature_names)
+        # Verify if the keys agree
+        assert set(default_values.keys()) == set(feature_names)
 
     if not _verify_column_transformer(column_transformer, feature_names):
         print("Warning: column transformer does not match feature names")
@@ -622,7 +635,7 @@ def expert_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(
             )
         else:
             step = (v[1] - v[0]) / n_points
-            sliders[k] = FloatSlider(min=v[0], max=v[1], step=step, value=v[0])
+            sliders[k] = FloatSlider(min=v[0], max=v[1], step=step, value=default_values[k])
 
         sliders[k].layout.margin = '0px 0px 0px 5px'
 
@@ -780,7 +793,7 @@ def expert_tts_plot(litmodel, dataset, trajectory_range, n_points=100, figsize=(
     # grid.layout.grid_template_columns = '10px auto'
 
     for i, feature_name in enumerate(feature_names):
-        label = Label(value=feature_name)
+        label = Label(value=display_feature_names[i])
         label.layout.width = '50px'
         label.layout.align_self = 'center'
         grid[2*i:2*i+1,0] = label
