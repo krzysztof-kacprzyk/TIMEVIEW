@@ -1,3 +1,0 @@
-[submodule "interpret"]
-	path = interpret
-	url = https://github.com/interpretml/interpret.git
