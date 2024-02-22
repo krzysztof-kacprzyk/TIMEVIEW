@@ -20,9 +20,9 @@ from tts.model import TTS
 from tts.lit_module import LitTTS
 import pytorch_lightning as pl
 import torch
-from datasets import load_dataset, save_dataset
-from baselines import GAMBenchmark, XGBBenchmark, TTSBenchmark, BaseBenchmark, get_baseline
-from baseline_implementations.rnn.config import RNNConfig
+from .datasets import load_dataset, save_dataset
+from .baselines import GAMBenchmark, XGBBenchmark, TTSBenchmark, BaseBenchmark, get_baseline
+from .baseline_implementations.rnn.config import RNNConfig
 
 import argparse
 
@@ -333,6 +333,7 @@ if __name__ == "__main__":
     parser.add_argument('--device', type=str, default='gpu', help='Device to run on.')
     parser.add_argument('--validate', action='store_true', help='Whether to validate first', default=False)
     parser.add_argument('--rnn_type', type=str, choices=['lstm', 'rnn'], default='lstm', help='RNN type to use')
+    parser.add_argument('--timeout', type=int, default=3600, help='Timeout for each trial (PySR only)')
 
     args = parser.parse_args()
 
@@ -437,6 +438,19 @@ if __name__ == "__main__":
             if 'DeltaTRNN' in args.baselines:
                 rnn_config = RNNConfig(args.rnn_type, n_features=tts_n_features[dataset_name], seed=global_seed, max_len=rnn_max_len[dataset_name], num_epochs=1000, device=args.device)
                 benchmarks['DeltaTRNN'] = {'config': rnn_config}
+            if 'CatBoost' in args.baselines:
+                benchmarks['CatBoost'] = {}
+            if 'LGBM' in args.baselines:
+                benchmarks['LGBM'] = {}
+            if 'DecisionTree' in args.baselines:
+                benchmarks['DecisionTree'] = {}
+            if 'ElasticNet' in args.baselines:
+                benchmarks['ElasticNet'] = {}
+            if 'SimpleLinear' in args.baselines:
+                benchmarks['SimpleLinear'] = {}
+            if 'PySR' in args.baselines:
+                benchmarks['PySR'] = {'timeout': args.timeout, 'n_features': tts_n_features[dataset_name]}
+
 
             run_benchmarks(dataset_name, benchmarks, **validate_benchmark_options)
         
@@ -467,7 +481,18 @@ if __name__ == "__main__":
         if 'DeltaTRNN' in args.baselines:
             rnn_config = RNNConfig(args.rnn_type, n_features=tts_n_features[dataset_name], seed=global_seed, max_len=rnn_max_len[dataset_name], num_epochs=1000, device=args.device)
             benchmarks['DeltaTRNN'] = {'config': rnn_config}
-
+        if 'CatBoost' in args.baselines:
+            benchmarks['CatBoost'] = {}
+        if 'LGBM' in args.baselines:
+            benchmarks['LGBM'] = {}
+        if 'DecisionTree' in args.baselines:
+            benchmarks['DecisionTree'] = {}
+        if 'ElasticNet' in args.baselines:
+            benchmarks['ElasticNet'] = {}
+        if 'SimpleLinear' in args.baselines:
+                benchmarks['SimpleLinear'] = {}
+        if 'PySR' in args.baselines:
+                benchmarks['PySR'] = {'timeout': args.timeout, 'n_features': tts_n_features[dataset_name]}
 
 
         run_benchmarks(dataset_name, benchmarks, **benchmark_options)

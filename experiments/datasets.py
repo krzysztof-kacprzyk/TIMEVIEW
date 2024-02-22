@@ -37,10 +37,12 @@ def load_dataset_description(dataset_name, dataset_description_path="dataset_des
     return dataset_description
 
 
-def load_dataset(dataset_name, dataset_description_path="dataset_descriptions"):
+def load_dataset(dataset_name, dataset_description_path="dataset_descriptions", data_folder=None):
     dataset_description = load_dataset_description(dataset_name, dataset_description_path=dataset_description_path)
     dataset_builder = dataset_description['dataset_builder']
     dataset_dictionary = dataset_description['dataset_dictionary']
+    if data_folder is not None:
+        dataset_dictionary['data_folder'] = data_folder
     dataset = get_class_by_name(dataset_builder)(**dataset_dictionary)
     return dataset
 
@@ -50,6 +52,32 @@ def get_class_by_name(class_name):
     This function takes a class name as an argument and returns a python class with this name that is implemented in this module.
     """
     return globals()[class_name]
+
+class SimpleLinearDataset(BaseDataset):
+    def __init__(self):
+        super().__init__()
+        n_points = 10
+        n_samples = 100
+        self.X = pd.DataFrame({'x':np.linspace(0,1,n_samples)})
+        coeffs = np.random.uniform(-1, 1, size=n_points)
+        coeffs[0] = 1
+        self.ts = [np.linspace(0,1,n_points) for i in range(n_samples)]
+        y0s = [np.random.uniform(-1, 1) for i in range(n_samples)]
+        self.ys = [coeffs*y0 for y0 in y0s]
+
+    def get_X_ts_ys(self):
+        return self.X, self.ts, self.ys
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def get_feature_names(self):
+        return ['x']
+    
+    def get_feature_ranges(self):
+        return {
+            'x': (0, 1)
+        } 
 
 class ExponentialDataset(BaseDataset):
 
@@ -359,11 +387,11 @@ class StressStrainDataset(BaseDataset):
 
 class TacrolimusDataset(BaseDataset):
 
-    def __init__(self, granularity, normalize=False, max_t=25):
+    def __init__(self, granularity, normalize=False, max_t=25, data_folder='data'):
         super().__init__(granularity=granularity, normalize=normalize)
         if granularity == 'visit':
 
-            df = pd.read_csv(os.path.join("data", "tacrolimus", "tac_pccp_mr4_250423.csv"))
+            df = pd.read_csv(os.path.join(data_folder, "tacrolimus", "tac_pccp_mr4_250423.csv"))
             dosage_rows = df[df['DOSE'] != 0]
             assert dosage_rows['visit_id'].is_unique
             df.drop(columns=['DOSE', 'EVID','II', 'AGE'], inplace=True) # we drop age because many missing values. the other columns are not needed
