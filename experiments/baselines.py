@@ -1,3 +1,5 @@
+import sys
+sys.path.append('../')
 from datetime import datetime
 import os
 from catboost import CatBoostClassifier, CatBoostRegressor, Pool
@@ -32,8 +34,8 @@ from tts.knot_selection import calculate_knot_placement
 import pytorch_lightning as pl
 import torch
 
-from .baseline_implementations.rnn.config import RNNConfig, RNNTuningConfig
-from .baseline_implementations.rnn.lit_module import LitRNN, LitDeltaTRNN
+from experiments.baseline_implementations.rnn.config import RNNConfig, RNNTuningConfig
+from experiments.baseline_implementations.rnn.lit_module import LitRNN, LitDeltaTRNN
 
 from lightgbm import LGBMRegressor
 import lightgbm as lgb
