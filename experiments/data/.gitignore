@@ -1,3 +1,10 @@
 *
 /*
 !.gitignore
+!flchain
+!flchain/flchain.csv
+!airfoil
+!airfoil/airfoil_self_noise.dat
+!stress-strain-curves
+!stress-strain-curves/*
+
