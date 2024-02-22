@@ -495,7 +495,7 @@ if __name__ == "__main__":
         if 'SimpleLinear' in args.baselines:
                 benchmarks['SimpleLinear'] = {}
         if 'PySR' in args.baselines:
-                benchmarks['PySR'] = {'timeout': args.timeout, 'n_features': tts_n_features[dataset_name]}
+                benchmarks['PySR'] = {'timeout_in_seconds': args.timeout, 'n_features': tts_n_features[dataset_name]}
 
 
         run_benchmarks(dataset_name, benchmarks, **benchmark_options)
