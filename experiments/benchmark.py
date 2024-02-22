@@ -1,3 +1,6 @@
+import sys
+sys.path.append('../')
+
 import copy
 from datetime import datetime
 import os
@@ -20,9 +23,9 @@ from tts.model import TTS
 from tts.lit_module import LitTTS
 import pytorch_lightning as pl
 import torch
-from .datasets import load_dataset, save_dataset
-from .baselines import GAMBenchmark, XGBBenchmark, TTSBenchmark, BaseBenchmark, get_baseline
-from .baseline_implementations.rnn.config import RNNConfig
+from experiments.datasets import load_dataset, save_dataset
+from experiments.baselines import GAMBenchmark, XGBBenchmark, TTSBenchmark, BaseBenchmark, get_baseline
+from experiments.baseline_implementations.rnn.config import RNNConfig
 
 import argparse
 

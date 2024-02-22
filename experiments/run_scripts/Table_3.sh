@@ -13,9 +13,9 @@ fi
 
 # Comment this part if you already have run TIMEVIEW_interface_only.sh
 if [[ " $@ " =~ " --debug " ]]; then
-    bash TIMEVIEW_interface_only.sh --debug
+    bash ./run_scripts/TIMEVIEW_interface_only.sh --debug
 else
-    bash TIMEVIEW_interface_only.sh
+    bash ./run_scripts/TIMEVIEW_interface_only.sh
 fi
 
 python benchmark.py --datasets airfoil_log flchain_1000 stress-strain-lot-max-0.2 --baselines TTS XGB GAM RNN SINDy DeltaTRNN CatBoost LGBM DecisionTree ElasticNet --n_trials $n_trials --n_tune $n_tune --seed 0 --device gpu --n_basis 9 --rnn_type lstm
