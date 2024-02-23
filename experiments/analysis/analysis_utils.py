@@ -56,10 +56,9 @@ def check_if_dataset_description_exists(dataset_name, dataset_descriptions_path=
         raise ValueError("Dataset description for {} does not exist".format(dataset_name))
     return
 
-def create_shap_plot(model_name, timestamp, dataset_name, dataset_title, timesteps, cmap_scale=0.4, results_dir='../benchmarks', data_dir='../data'):
+def create_shap_plot(model_name, timestamp, dataset_name, dataset_title, timesteps, cmap_scale=0.4, results_dir='../benchmarks', data_dir=None, dataset_description_path="../dataset_descriptions"):
 
-
-    dataset = load_dataset(dataset_name, data_folder=data_dir)
+    dataset = load_dataset(dataset_name, data_folder=data_dir, dataset_description_path=dataset_description_path)
     column_transformer = load_column_transformer(timestamp, model_name, benchmarks_dir=results_dir)
     y_normalizer = YNormalizer.load_from_benchmark(timestamp, model_name, benchmark_dir=results_dir)
 
