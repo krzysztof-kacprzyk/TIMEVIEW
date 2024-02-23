@@ -23,9 +23,6 @@ import sympy
 from xgboost import XGBRegressor
 import pysindy as ps
 
-# from tts.training import training
-# from tts.tuning import tuning
-
 from timeview.data import TTSDataset, create_dataloader, BaseDataset
 from timeview.config import TuningConfig, Config
 from timeview.model import TTS
