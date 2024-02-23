@@ -1,10 +1,10 @@
 from pytorch_lightning.utilities.seed import seed_everything
-from tts.lit_module import LitTTS
-from tts.model import TTS
-from tts.data import create_train_val_test_dataloaders
+from timeview.lit_module import LitTTS
+from timeview.model import TTS
+from timeview.data import create_train_val_test_dataloaders
 from optuna.integration import PyTorchLightningPruningCallback
 import pytorch_lightning as pl
-import tts
+import timeview
 import optuna
 import sys
 sys.path.append('../')
@@ -12,8 +12,8 @@ sys.path.append('../')
 
 def training(
     seed: int,
-    config: tts.config.Config,
-    dataset: tts.data.TTSDataset,
+    config: timeview.config.Config,
+    dataset: timeview.data.TTSDataset,
     trial: optuna.trial.Trial = None
 ):
     '''

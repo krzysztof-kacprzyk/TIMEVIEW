@@ -5,13 +5,10 @@ requires      = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["tts"]
+packages = ["timeview"]
 
 [project]
-name = "tts"
+name = "TIMEVIEW"
 version = "1.0.0"
 readme = "README.md"
 dependencies = []
-
-[project.optional-dependencies]
-dev = ["pytest"]

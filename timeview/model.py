@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import pytorch_lightning as pl
 
-from tts.basis import BSplineBasis
+from timeview.basis import BSplineBasis
 from .config import Config
 
 def is_dynamic_bias_enabled(config):

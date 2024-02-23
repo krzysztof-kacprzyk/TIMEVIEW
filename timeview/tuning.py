@@ -2,9 +2,9 @@ import os
 import optuna
 import json
 import pickle
-from tts.config import TuningConfig
-from tts.training import training
-from tts.data import synthetic_tumor_data, TTSDataset
+from timeview.config import TuningConfig
+from timeview.training import training
+from timeview.data import synthetic_tumor_data, TTSDataset
 
 
 def tuning(seed: int, tuning_dir: str,  n_trials: int):

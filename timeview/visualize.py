@@ -5,7 +5,7 @@ from tkinter import ttk
 from ipywidgets import interact, SelectionSlider, FloatSlider, Text, Box, Label, HBox, VBox, Layout, Output, interactive_output, GridspecLayout, Button, Dropdown
 import numpy as np
 from sklearn.compose import ColumnTransformer
-from tts.basis import BSplineBasis
+from timeview.basis import BSplineBasis
 import mplcursors
 from IPython.display import display
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -1562,7 +1562,7 @@ if __name__ == "__main__":
     import sys
     sys.path.append('../')
     from experiments.datasets import load_dataset
-    from tts.lit_module import load_model
+    from timeview.lit_module import load_model
     import numpy as np
 
 

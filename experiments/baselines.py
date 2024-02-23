@@ -26,11 +26,11 @@ import pysindy as ps
 # from tts.training import training
 # from tts.tuning import tuning
 
-from tts.data import TTSDataset, create_dataloader, BaseDataset
-from tts.config import TuningConfig, Config
-from tts.model import TTS
-from tts.lit_module import LitTTS
-from tts.knot_selection import calculate_knot_placement
+from timeview.data import TTSDataset, create_dataloader, BaseDataset
+from timeview.config import TuningConfig, Config
+from timeview.model import TTS
+from timeview.lit_module import LitTTS
+from timeview.knot_selection import calculate_knot_placement
 import pytorch_lightning as pl
 import torch
 

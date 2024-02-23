@@ -17,10 +17,10 @@ from sklearn.metrics import mean_squared_error, r2_score
 from interpret.glassbox import ExplainableBoostingRegressor
 from xgboost import XGBRegressor
 
-from tts.data import TTSDataset, create_dataloader, BaseDataset
-from tts.config import TuningConfig, Config
-from tts.model import TTS
-from tts.lit_module import LitTTS
+from timeview.data import TTSDataset, create_dataloader, BaseDataset
+from timeview.config import TuningConfig, Config
+from timeview.model import TTS
+from timeview.lit_module import LitTTS
 import pytorch_lightning as pl
 import torch
 from experiments.datasets import load_dataset, save_dataset

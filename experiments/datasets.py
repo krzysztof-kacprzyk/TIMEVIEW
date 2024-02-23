@@ -1,4 +1,4 @@
-from tts.data import BaseDataset
+from timeview.data import BaseDataset
 from abc import ABC, abstractmethod
 import json
 import os
