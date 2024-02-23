@@ -18,7 +18,10 @@ else
     bash ./run_scripts/TIMEVIEW_interface_only.sh
 fi
 
-python benchmark.py --datasets airfoil_log flchain_1000 stress-strain-lot-max-0.2 --baselines TTS XGB GAM RNN SINDy DeltaTRNN CatBoost LGBM DecisionTree ElasticNet --n_trials $n_trials --n_tune $n_tune --seed 0 --device gpu --n_basis 9 --rnn_type lstm
+python benchmark.py --datasets airfoil_log flchain_1000 stress-strain-lot-max-0.2 --baselines TTS XGB GAM SINDy DeltaTRNN CatBoost LGBM DecisionTree ElasticNet --n_trials $n_trials --n_tune $n_tune --seed 0 --device gpu --n_basis 9 --rnn_type lstm
+
+# Run RNN only when regularly sampled dataset
+python benchmark.py --datasets flchain_1000 --baselines RNN --n_trials $n_trials --n_tune $n_tune --seed 0 --device gpu --n_basis 9 --rnn_type lstm
 
 # Do not run TIMEVIEW on Sine, Beta and Tumour as we have already run it in TIMEVIEW_interface_only.sh
 python benchmark.py --datasets synthetic_tumor_wilkerson_1 --baselines XGB GAM RNN SINDy DeltaTRNN CatBoost LGBM DecisionTree ElasticNet --n_trials $n_trials --n_tune $n_tune --seed 0 --device gpu --n_basis 9 --rnn_type lstm
