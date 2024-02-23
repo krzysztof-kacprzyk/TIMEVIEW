@@ -1,6 +1,5 @@
 name: tts
 channels:
-  - sebp
   - pytorch
   - nvidia
   - conda-forge
@@ -16,17 +15,15 @@ dependencies:
   - pytorch-cuda=11.7
   - pytorch-lightning=2.0.2
   - scikit-learn=1.2.2
-  - scikit-survival=0.20.0
   - scipy=1.8.1
   - sympy=1.11.1
   - pip:
       - interpret==0.3.2
       - julia==0.6.1
-      - kaleido==0.2.1
       - numpy==1.23.5
       - optuna==3.1.1
       - pysindy==1.7.5
       - pysr==0.13.0
       - tabulate==0.9.0
       - xgboost==1.7.5
-      - -e ./tts
+      - -e .
