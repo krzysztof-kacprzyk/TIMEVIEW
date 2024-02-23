@@ -5,6 +5,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
+  - catboost=1.2
   - jupyter=1.0.0
   - matplotlib=3.7.1
   - pandas=2.0.1
@@ -26,4 +27,5 @@ dependencies:
       - pysr==0.13.0
       - tabulate==0.9.0
       - xgboost==1.7.5
+      - lightgbm==3.3.5
       - -e .
