@@ -13,7 +13,7 @@ You can install all required dependencies using conda and the following command
 ```
 conda env create -n timeview --file environment.yml
 ```
-This will also install tts (the main module) in editable mode.
+This will also install `timeview` (the main module) in editable mode.
 
 ## Running all experiments
 To run all experiments navigate to `experiments` using
@@ -32,7 +32,7 @@ experiments/benchmarks/{timestamp}/
 experiments/benchmarks/summary.json
 ```
 
-## Figures and Tables
+## Figures and tables
 Jupyter notebooks used to create all figures and tables in the paper can be found in `experiments/analysis`.
 
 ## Other information
